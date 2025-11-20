@@ -3,35 +3,35 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
-    // Load env file based on `mode` in the current working directory.
-    // Set the third parameter to '' to load all env regardless of the `VITE_` prefix.
-    const env = loadEnv(mode, process.cwd(), '');
-    
-    return {
-      // Base path must be relative for GH Pages / Vercel to work in subdirectories
-      base: './', 
-      server: {
-        port: 3000,
-        host: '0.0.0.0',
-      },
-      plugins: [react()],
-      define: {
-        // Polyfill process.env for libraries that might expect it, 
-        // and inject the API key if it's set in the environment.
-        'process.env.API_KEY': JSON.stringify(env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY),
-        // Also expose it as a global for direct access if needed (safety net)
-        '__GEMINI_API_KEY__': JSON.stringify(env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY)
-      },
-      resolve: {
-        alias: {
-          '@': path.resolve(__dirname, './src'),
-        }
-      },
-      build: {
-        outDir: 'dist',
-        assetsDir: 'assets',
-        sourcemap: false
+  // Load env file based on `mode` in the current working directory.
+  // Set the third parameter to '' to load all env regardless of the `VITE_` prefix.
+  const env = loadEnv(mode, process.cwd(), '');
+
+  return {
+    // Base path must be relative for GH Pages / Vercel to work in subdirectories
+    base: './',
+    server: {
+      port: 3000,
+      host: '0.0.0.0',
+    },
+    plugins: [react()],
+    define: {
+      // Polyfill process.env for libraries that might expect it, 
+      // and inject the API key if it's set in the environment.
+      'process.env.API_KEY': JSON.stringify(env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY),
+      'process.env.GEMINI_API_KEY': JSON.stringify(env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY),
+      // Also expose it as a global for direct access if needed (safety net)
+      '__GEMINI_API_KEY__': JSON.stringify(env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY)
+    },
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, '.'),
       }
-    };
+    },
+    build: {
+      outDir: 'dist',
+      assetsDir: 'assets',
+      sourcemap: false
+    }
+  };
 });

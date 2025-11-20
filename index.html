@@ -1,38 +1,45 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Gemini Terra</title>
-    
-    <!-- Cesium CSS -->
-    <link href="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
-    
-    <!-- Define Base URL for Cesium BEFORE loading it -->
-    <script>
-      window.CESIUM_BASE_URL = "https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/";
-    </script>
-    
-    <!-- Cesium JS -->
-    <script src="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Cesium.js"></script>
-    
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
-      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
-      body {
-        font-family: 'Inter', sans-serif;
-        margin: 0;
-        padding: 0;
-        background-color: #000000;
-        color: white;
-        overflow: hidden;
-      }
-      .cesium-widget-credits { display: none !important; }
-    </style>
-  </head>
-  <body>
-    <div id="root"></div>
-    <!-- Main Entry Point -->
-    <script type="module" src="/index.tsx"></script>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gemini Terra</title>
+
+  <!-- Cesium CSS -->
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+
+  <!-- Define Base URL for Cesium BEFORE loading it -->
+  <script>
+    window.CESIUM_BASE_URL = "https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/";
+  </script>
+
+  <!-- Cesium JS -->
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Cesium.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+
+    body {
+      font-family: 'Inter', sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #000000;
+      color: white;
+      overflow: hidden;
+    }
+
+    .cesium-widget-credits {
+      display: none !important;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+  <!-- Main Entry Point -->
+  <script type="module" src="./index.tsx"></script>
+</body>
+
 </html>
