@@ -20,6 +20,8 @@ export default defineConfig(({ mode }) => {
       // and inject the API key if it's set in the environment.
       'process.env.API_KEY': JSON.stringify(env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY),
       'process.env.GEMINI_API_KEY': JSON.stringify(env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY),
+      'process.env.VITE_DEEPSEEK_API_KEY': JSON.stringify(env.VITE_DEEPSEEK_API_KEY),
+      'process.env.VITE_CESIUM_ION_TOKEN': JSON.stringify(env.VITE_CESIUM_ION_TOKEN),
       // Also expose it as a global for direct access if needed (safety net)
       '__GEMINI_API_KEY__': JSON.stringify(env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY)
     },

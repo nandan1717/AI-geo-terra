@@ -1,6 +1,7 @@
 
 // DeepSeek API Service
-const API_KEY = "sk-782e8f899592402d9f9780e4ec629848";
+// DeepSeek API Service
+const API_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY || process.env.VITE_DEEPSEEK_API_KEY;
 const API_URL = "https://api.deepseek.com/chat/completions";
 
 interface DeepSeekMessage {
@@ -9,7 +10,7 @@ interface DeepSeekMessage {
 }
 
 export const queryDeepSeek = async (
-  messages: DeepSeekMessage[], 
+  messages: DeepSeekMessage[],
   jsonMode: boolean = false,
   temperature: number = 1.3
 ): Promise<string> => {

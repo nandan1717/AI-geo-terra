@@ -30,7 +30,8 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, onMarker
     const initCesium = async () => {
       try {
         // 0. Set Access Token
-        Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIyYTg0NjdhYy04MzNhLTRlOTYtOTA0Zi1mNzYxYmZiYmYzNTQiLCJpZCI6MzYyMTQwLCJpYXQiOjE3NjM2MzAyMzN9.zo4xcLIcxWIfdjXOEoCqAPYGazcI_cB2FXQcOBNazI8";
+        // 0. Set Access Token
+        Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_ION_TOKEN || process.env.VITE_CESIUM_ION_TOKEN;
 
         // 1. Initialize Viewer with minimal options first to ensure container is ready
         // We disable imageryProvider initially to manage it explicitly
