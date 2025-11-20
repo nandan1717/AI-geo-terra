@@ -1,19 +1,21 @@
-
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gemini Terra</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Cesium CSS -->
     <link href="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
     
-    <!-- CRITICAL FIX: Define Base URL for Cesium Workers -->
+    <!-- Define Base URL for Cesium BEFORE loading it -->
     <script>
       window.CESIUM_BASE_URL = "https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/";
     </script>
     
+    <!-- Cesium JS -->
     <script src="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Cesium.js"></script>
+    
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
       @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
@@ -23,33 +25,14 @@
         padding: 0;
         background-color: #000000;
         color: white;
-        overflow: hidden; /* Prevent scrolling on the main canvas */
+        overflow: hidden;
       }
-      /* Hide Cesium Credit if needed for clean UI, strictly purely for aesthetics in this demo */
       .cesium-widget-credits { display: none !important; }
     </style>
-  <script type="importmap">
-{
-  "imports": {
-    "@react-three/drei": "https://aistudiocdn.com/@react-three/drei@^10.7.7",
-    "react-dom/client": "https://aistudiocdn.com/react-dom@^19.2.0/client",
-    "react-dom": "https://aistudiocdn.com/react-dom@^19.2.0",
-    "three": "https://aistudiocdn.com/three@^0.181.2",
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "@react-three/fiber": "https://aistudiocdn.com/@react-three/fiber@^9.4.0",
-    "three-stdlib": "https://aistudiocdn.com/three-stdlib@^2.36.1",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/"
-  }
-}
-</script>
-<link rel="stylesheet" href="/index.css">
-</head>
+  </head>
   <body>
     <div id="root"></div>
-  <script type="module" src="/index.tsx"></script>
-</body>
+    <!-- Main Entry Point -->
+    <script type="module" src="/index.tsx"></script>
+  </body>
 </html>
