@@ -1,0 +1,7 @@
+{
+  "name": "GEO TERRA",
+  "description": "An interactive 3D photorealistic globe powered by Gemini 2.5 Flash. Explore the world by asking questions, generating formatted markers for geographical interests, historical sites, or current events in real-time.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
