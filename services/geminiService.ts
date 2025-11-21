@@ -39,11 +39,16 @@ export const fetchLocationsFromQuery = async (query: string): Promise<LocationMa
   try {
     // Simplified prompt for Gemini to avoid hallucinations
     const prompt = `
-      User Query: "${query}"
-      Task: Find real-world locations using Google Search/Maps tools.
-      Return valid JSON Array.
-      Required Fields: name, region, country, latitude, longitude, description, googleMapsUri.
-      If query is gibberish, return [].
+      Identify locations in the text: "${query}".
+      Return a JSON array of objects with these fields:
+      - name: string (official name)
+      - latitude: number
+      - longitude: number
+      - description: string (1 sentence summary)
+      - type: "Country" | "State" | "City" | "Place"
+      - timezone: string (IANA format e.g., "Europe/London" or "America/New_York")
+      - country: string (optional)
+      - region: string (optional, e.g., state/province)
     `;
 
     const result = await ai.models.generateContent({
@@ -78,7 +83,7 @@ const fetchLocationsInternalFallback = async (query: string): Promise<LocationMa
   try {
     const result = await ai.models.generateContent({
       model: MODEL_NAME,
-      contents: `List 1 real location for "${query}" as JSON Array with name, lat, lng, description, region, country.`,
+      contents: `List 1 real location for "${query}" as JSON Array with name, lat, lng, description, region, country, type (Country/State/City/Place).`,
       config: { responseMimeType: "application/json", temperature: 0 }
     });
     return JSON.parse(result.text);
@@ -89,7 +94,7 @@ export const getPlaceFromCoordinates = async (lat: number, lng: number): Promise
   try {
     const result = await ai.models.generateContent({
       model: MODEL_NAME,
-      contents: `Reverse Geocode: ${lat}, ${lng}. Return JSON object: {name, region, country, description}.`,
+      contents: `Reverse Geocode: ${lat}, ${lng}. Return JSON object: {name, region, country, description, type (Country/State/City/Place)}.`,
       config: { temperature: 0, tools: [{ googleSearch: {} }] }
     });
 
@@ -104,7 +109,8 @@ export const getPlaceFromCoordinates = async (lat: number, lng: number): Promise
       longitude: lng,
       description: data.description || "Current GPS Location",
       region: data.region || "",
-      country: data.country || ""
+      country: data.country || "",
+      type: data.type || "Place"
     };
   } catch (error) {
     return {
@@ -201,7 +207,7 @@ export const connectWithCrowdMember = async (member: CrowdMember, location: Loca
   }
 };
 
-// --- 4. CHAT (Hybrid: Gemini Search -> DeepSeek Reply) ---
+// --- 4. CHAT (MCP Integration) ---
 export const chatWithPersona = async (
   persona: LocalPersona,
   locationName: string,
@@ -209,71 +215,18 @@ export const chatWithPersona = async (
   userMessage: string
 ): Promise<ChatResponse> => {
 
-  try {
-    // STEP 1: USE GEMINI TO GATHER REAL-WORLD DATA (Web Scraping)
-    const searchContext = await gatherLocalContext(userMessage, locationName);
+  // Import dynamically to avoid circular deps if any (though none here)
+  const { MCPContextServer } = await import('./ModelContextProtocol');
 
-    // STEP 2: USE DEEPSEEK TO GENERATE HUMAN RESPONSE
-    const recentChat = history.slice(-6).map(m => `${m.role}: ${m.text}`).join('\n');
+  // 1. Get Real-Time Data
+  const context = await MCPContextServer.getRealTimeContext(userMessage, locationName, history);
 
-    const systemPrompt = `
-            Roleplay as ${persona.name} from ${locationName}.
-            Traits: ${persona.mindset}. Context: ${persona.currentActivity}.
-            
-            [REAL-WORLD DATA FOUND]:
-            ${searchContext}
-            
-            RULES:
-            1. USE THE DATA. If the search found a phone number or address, GIVE IT EXACTLY. Do not mask digits.
-            2. If the data is for a different city, ignore it.
-            3. Short, informal, local dialect.
-            
-            FORMAT:
-            [Your Reply]
-            ___SUGGESTIONS___
-            [Q1]|[Q2]|[Q3]
-        `;
-
-    const responseText = await queryDeepSeek([
-      { role: "system", content: systemPrompt },
-      { role: "user", content: `Chat History:\n${recentChat}\n\nUser: ${userMessage}` }
-    ], false, 1.2); // High temp for creativity
-
-    // Parse Response
-    const parts = responseText.split("___SUGGESTIONS___");
-    const replyText = parts[0].trim();
-    const suggestions = parts[1] ? parts[1].split("|").map(s => s.trim()) : [];
-
-    return {
-      text: replyText,
-      suggestions: suggestions,
-      sources: searchContext ? [{ title: "Live Local Data", uri: "google.com" }] : []
-    };
-
-  } catch (error: any) {
-    console.error("Chat Error", error);
-    return { text: "...", suggestions: [] };
-  }
+  // 2. Synthesize Response with Persona
+  return await MCPContextServer.synthesizeResponse(
+    persona,
+    locationName,
+    history,
+    userMessage,
+    context
+  );
 };
-
-// Helper: Use Gemini to Search
-const gatherLocalContext = async (query: string, location: string): Promise<string> => {
-  try {
-    // Construct a smart query first
-    const smartQueryRes = await ai.models.generateContent({
-      model: MODEL_NAME,
-      contents: `Convert this to a Google Search query for finding real info in ${location}: "${query}". Return ONLY the query string.`,
-      config: { temperature: 0 }
-    });
-    const smartQuery = smartQueryRes.text?.trim() || `${query} ${location}`;
-
-    // Execute Search
-    const searchRes = await ai.models.generateContent({
-      model: MODEL_NAME,
-      contents: `Search: "${smartQuery}". Extract EXACT phone numbers, addresses, and business names. If data is not in ${location}, ignore it.`,
-      config: { tools: [{ googleSearch: {} }] }
-    });
-
-    return searchRes.text || "";
-  } catch (e) { return ""; }
-}

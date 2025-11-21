@@ -1,11 +1,14 @@
 
 export interface LocationMarker {
+  id: string;
   name: string;
   latitude: number;
   longitude: number;
   description: string;
-  region?: string;
+  type?: 'Country' | 'State' | 'City' | 'Place';
+  timezone?: string; // e.g., "Europe/London" or "UTC+1"
   country?: string;
+  region?: string;
   googleMapsUri?: string;
 }
 
@@ -48,4 +51,7 @@ export interface ChatResponse {
 // Camera types for controlling the globe view
 export interface CameraControlRef {
   flyTo: (lat: number, lng: number) => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  resetView: () => void;
 }

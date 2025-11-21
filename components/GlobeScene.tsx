@@ -30,11 +30,9 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, onMarker
     const initCesium = async () => {
       try {
         // 0. Set Access Token
-        // 0. Set Access Token
         Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_ION_TOKEN || process.env.VITE_CESIUM_ION_TOKEN;
 
         // 1. Initialize Viewer with minimal options first to ensure container is ready
-        // We disable imageryProvider initially to manage it explicitly
         viewer = new Cesium.Viewer(containerRef.current, {
           imageryProvider: false, // We will add this manually
           terrainProvider: undefined, // We will add this manually
@@ -53,13 +51,13 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, onMarker
           contextOptions: {
             webgl: {
               alpha: false,
-              antialias: true,
+              antialias: false, // Disable antialias for perf
               preserveDrawingBuffer: true,
               failIfMajorPerformanceCaveat: false,
               powerPreference: "high-performance"
             }
           },
-          requestRenderMode: false, // Force constant rendering for smooth updates
+          requestRenderMode: false, // Revert to continuous rendering for smoothness
           maximumRenderTimeChange: Infinity
         });
 
@@ -67,12 +65,15 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, onMarker
         try {
           console.log("Loading Imagery...");
           const imageryProvider = await Cesium.IonImageryProvider.fromAssetId(3);
+          if (viewer.isDestroyed()) return; // Safety check
           viewer.imageryLayers.addImageryProvider(imageryProvider);
         } catch (e) {
+          if (viewer.isDestroyed()) return; // Safety check
           console.error("Failed to load Ion Imagery, falling back to ArcGIS", e);
           const fallbackImagery = await Cesium.ArcGisMapServerImageryProvider.fromUrl(
             "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer"
           );
+          if (viewer.isDestroyed()) return; // Safety check
           viewer.imageryLayers.addImageryProvider(fallbackImagery);
         }
 
@@ -80,11 +81,13 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, onMarker
         try {
           console.log("Loading Terrain...");
           const terrainProvider = await Cesium.createWorldTerrainAsync({
-            requestWaterMask: true,
-            requestVertexNormals: true
+            requestWaterMask: false, // Disable water mask for perf
+            requestVertexNormals: false // Disable vertex normals for perf
           });
+          if (viewer.isDestroyed()) return; // Safety check
           viewer.scene.terrainProvider = terrainProvider;
         } catch (e) {
+          if (viewer.isDestroyed()) return; // Safety check
           console.warn("Failed to load World Terrain, using Ellipsoid", e);
           viewer.scene.terrainProvider = new Cesium.EllipsoidTerrainProvider();
         }
@@ -93,10 +96,13 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, onMarker
         try {
           console.log("Loading 3D Buildings...");
           const buildingsTileset = await Cesium.createOsmBuildingsAsync();
+          if (viewer.isDestroyed()) return; // Safety check
           viewer.scene.primitives.add(buildingsTileset);
         } catch (e) {
           console.warn("Could not load OSM Buildings", e);
         }
+
+        if (viewer.isDestroyed()) return; // Final safety check
 
         // 5. Configure Lighting & Environment
         // Fix: Set time to Noon to ensure visibility
@@ -104,33 +110,33 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, onMarker
         viewer.clock.currentTime = noonTime;
         viewer.clock.shouldAnimate = false;
 
-        viewer.scene.globe.enableLighting = true;
-        viewer.scene.highDynamicRange = true;
+        viewer.scene.globe.enableLighting = true; // Enable lighting for depth
+        viewer.scene.highDynamicRange = true; // Enable HDR for glow
 
         // Fix: Do NOT set baseColor to Black if you want to avoid "black holes" when imagery fails.
         // However, for a space look, black is standard. We rely on imagery loading.
         viewer.scene.globe.baseColor = Cesium.Color.BLACK;
 
         viewer.scene.globe.depthTestAgainstTerrain = true;
-        viewer.scene.globe.showGroundAtmosphere = true;
+        viewer.scene.globe.showGroundAtmosphere = true; // Enable ground atmosphere for that "blue marble" look
 
         // 6. Quality Tuning
-        viewer.scene.globe.maximumScreenSpaceError = 1.2; // Balance detail/perf
-        viewer.resolutionScale = window.devicePixelRatio || 1.0;
+        viewer.scene.globe.maximumScreenSpaceError = 2.0;
+        viewer.resolutionScale = window.devicePixelRatio; // Native resolution for 4K/Retina
         if (viewer.scene.postProcessStages.fxaa) {
-          viewer.scene.postProcessStages.fxaa.enabled = true;
+          viewer.scene.postProcessStages.fxaa.enabled = true; // Enable FXAA for smoother edges
         }
 
         // Vertical Exaggeration for depth
         viewer.scene.verticalExaggeration = 1.5;
 
-        // Atmosphere Tuning
+        // Atmosphere Tuning - Vibrant & Glowing
         viewer.scene.skyAtmosphere.show = true;
-        viewer.scene.skyAtmosphere.saturationShift = 0.1;
-        viewer.scene.skyAtmosphere.brightnessShift = 0.1;
+        viewer.scene.skyAtmosphere.saturationShift = 0.6; // Boost saturation for deep blue
+        viewer.scene.skyAtmosphere.brightnessShift = 0.4; // Boost brightness for halo glow
 
-        viewer.scene.fog.enabled = true;
-        viewer.scene.fog.density = 0.0001;
+        viewer.scene.fog.enabled = true; // Enable fog for atmospheric depth
+        viewer.scene.fog.density = 0.0001; // Light fog
         viewer.scene.fog.screenSpaceErrorFactor = 2.0;
 
         // Hide Credits
@@ -182,7 +188,21 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, onMarker
 
     dataSource.entities.removeAll();
 
+    // Helper for LOD
+    const getDistanceCondition = (type?: string) => {
+      const Cesium = window.Cesium;
+      switch (type) {
+        case 'Country': return new Cesium.DistanceDisplayCondition(0.0, 20000000.0); // Visible from far
+        case 'State': return new Cesium.DistanceDisplayCondition(0.0, 5000000.0);
+        case 'City': return new Cesium.DistanceDisplayCondition(0.0, 250000.0); // Visible only when closer (< 250km)
+        case 'Place': return new Cesium.DistanceDisplayCondition(0.0, 50000.0); // Visible only when very close (< 50km)
+        default: return new Cesium.DistanceDisplayCondition(0.0, 5000000.0); // Default to State level
+      }
+    };
+
     markers.forEach(marker => {
+      const distanceCondition = getDistanceCondition(marker.type);
+
       dataSource.entities.add({
         position: Cesium.Cartesian3.fromDegrees(marker.longitude, marker.latitude),
         billboard: {
@@ -204,7 +224,19 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, onMarker
           verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
           scale: 1.0,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          distanceDisplayCondition: distanceCondition
+        },
+        label: {
+          text: marker.name,
+          font: '14px sans-serif',
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          verticalOrigin: Cesium.VerticalOrigin.TOP,
+          pixelOffset: new Cesium.Cartesian2(0, 32),
+          distanceDisplayCondition: distanceCondition
         },
         properties: { markerData: marker }
       });
@@ -215,7 +247,7 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, onMarker
 
 
 
-  // FlyTo
+  // FlyTo & Zoom Controls
   useImperativeHandle(ref, () => ({
     flyTo: (lat: number, lng: number) => {
       if (!viewerRef.current || !window.Cesium) return;
@@ -229,6 +261,26 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, onMarker
           roll: 0.0
         },
         duration: 3.0
+      });
+    },
+    zoomIn: () => {
+      if (!viewerRef.current) return;
+      const camera = viewerRef.current.camera;
+      const height = camera.positionCartographic.height;
+      camera.zoomIn(height * 0.5); // Zoom in by 50% of current height
+    },
+    zoomOut: () => {
+      if (!viewerRef.current) return;
+      const camera = viewerRef.current.camera;
+      const height = camera.positionCartographic.height;
+      camera.zoomOut(height * 1.0); // Zoom out by 100% of current height
+    },
+    resetView: () => {
+      if (!viewerRef.current || !window.Cesium) return;
+      const Cesium = window.Cesium;
+      viewerRef.current.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(0, 20, 20000000),
+        duration: 2.0
       });
     }
   }));
