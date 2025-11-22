@@ -123,20 +123,32 @@ export const getPlaceFromCoordinates = async (lat: number, lng: number): Promise
 };
 
 // --- 2. CROWD GENERATION (DeepSeek - Best for Creative Writing) ---
-export const fetchCrowd = async (location: LocationMarker): Promise<CrowdMember[]> => {
+export const fetchCrowd = async (location: LocationMarker, customQuery?: string): Promise<CrowdMember[]> => {
   const localTime = getLocalTime(location.longitude);
 
   try {
     // Use DeepSeek for more diverse and human-like personas
+    let systemPrompt = "You are a creative writer. Output strictly valid JSON.";
+    let userPrompt = `Generate 3 distinct individuals at: ${location.name}, ${location.region}, ${location.country}. Time: ${localTime}.
+            JSON Schema: { "members": [{ "name", "gender", "occupation", "age", "lineage", "mindset", "currentActivity", "mood", "bio" }] }`;
+
+    if (customQuery) {
+      systemPrompt = "You are a precise character generator. Output strictly valid JSON.";
+      userPrompt = `Generate 3 distinct individuals at: ${location.name}, ${location.region}, ${location.country}. Time: ${localTime}.
+        CRITICAL INSTRUCTION: All 3 individuals must strictly match the description: "${customQuery}".
+        However, they must be distinct from each other in terms of age, specific role/nuance, personality, and background.
+        Example: If query is "Doctor", generate a young resident, an experienced surgeon, and a traditional healer.
+        JSON Schema: { "members": [{ "name", "gender", "occupation", "age", "lineage", "mindset", "currentActivity", "mood", "bio" }] }`;
+    }
+
     const responseText = await queryDeepSeek([
       {
         role: "system",
-        content: "You are a creative writer. Output strictly valid JSON."
+        content: systemPrompt
       },
       {
         role: "user",
-        content: `Generate 3 distinct individuals at: ${location.name}, ${location.region}, ${location.country}. Time: ${localTime}.
-            JSON Schema: { "members": [{ "name", "gender", "occupation", "age", "lineage", "mindset", "currentActivity", "mood", "bio" }] }`
+        content: userPrompt
       }
     ], true);
 
@@ -146,14 +158,18 @@ export const fetchCrowd = async (location: LocationMarker): Promise<CrowdMember[
   } catch (error: any) {
     console.error("DeepSeek Crowd Error, falling back to Gemini", error);
     // Fallback to Gemini if DeepSeek fails
-    return fetchCrowdFallback(location);
+    return fetchCrowdFallback(location, customQuery);
   }
 }
 
-const fetchCrowdFallback = async (location: LocationMarker): Promise<CrowdMember[]> => {
+const fetchCrowdFallback = async (location: LocationMarker, customQuery?: string): Promise<CrowdMember[]> => {
+  const prompt = customQuery
+    ? `Generate 3 distinct locals at ${location.name} who all match the description: "${customQuery}". Vary their ages and backgrounds. JSON format.`
+    : `Generate 3 locals at ${location.name}. JSON format.`;
+
   const result = await ai.models.generateContent({
     model: MODEL_NAME,
-    contents: `Generate 3 locals at ${location.name}. JSON format.`,
+    contents: prompt,
     config: { responseMimeType: "application/json" }
   });
   return JSON.parse(result.text).members || [];

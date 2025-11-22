@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Search, MapPin, X, Loader2, Radio, Info, Users, Send, Minus, Plus, Navigation, Globe, ChevronLeft, Sparkles, Activity, History, MessageSquare, AlertCircle as AlertIcon, Crosshair } from 'lucide-react';
+import { Search, MapPin, X, Loader2, Radio, Info, Users, Send, Minus, Plus, Navigation, Globe, ChevronLeft, Sparkles, Activity, History, MessageSquare, AlertCircle as AlertIcon, Crosshair, LogOut, HelpCircle, User as UserIcon } from 'lucide-react';
 import { LocationMarker, SearchState, LocalPersona, ChatMessage, CrowdMember } from '../types';
 
 import WeatherTimeDisplay from './WeatherTimeDisplay';
@@ -20,7 +20,8 @@ interface UIOverlayProps {
     // Crowd & Chat
     crowd: LocalPersona[];
     isLoadingCrowd: boolean;
-    onSelectMember: (member: LocalPersona) => void;
+    onCustomCrowdSearch: (query: string) => void;
+    onSelectMember: (member: CrowdMember) => void;
 
     persona: LocalPersona | null;
     isSummoning: boolean;
@@ -39,6 +40,11 @@ interface UIOverlayProps {
     onZoomIn: () => void;
     onZoomOut: () => void;
     onResetView: () => void;
+
+    // Auth & Tutorial
+    userEmail?: string;
+    onSignOut: () => void;
+    onRestartTutorial: () => void;
 }
 
 const UIOverlay: React.FC<UIOverlayProps> = ({
@@ -53,6 +59,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
 
     crowd,
     isLoadingCrowd,
+    onCustomCrowdSearch,
     onSelectMember,
 
     persona,
@@ -71,16 +78,22 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
 
     onZoomIn,
     onZoomOut,
-    onResetView
+    onResetView,
+
+    userEmail,
+    onSignOut,
+    onRestartTutorial
 }) => {
     const [inputValue, setInputValue] = useState('');
     const [chatInput, setChatInput] = useState('');
     const [isMobile, setIsMobile] = useState(false);
+    const [isProfileOpen, setIsProfileOpen] = useState(false); // Profile Menu State
 
     const inputRef = useRef<HTMLInputElement>(null);
     const chatEndRef = useRef<HTMLDivElement>(null);
 
     const [isMinimized, setIsMinimized] = useState(false);
+    const [isCustomSearching, setIsCustomSearching] = useState(false); // Custom Search State
     const [chatPosition, setChatPosition] = useState({ x: 20, y: 80 }); // Default desktop position
     const [isDragging, setIsDragging] = useState(false);
     const dragOffset = useRef({ x: 0, y: 0 });
@@ -91,6 +104,13 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
         window.addEventListener('resize', checkMobile);
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
+
+    // Reset custom searching state when loading finishes
+    useEffect(() => {
+        if (!isLoadingCrowd) {
+            setIsCustomSearching(false);
+        }
+    }, [isLoadingCrowd]);
 
     useEffect(() => {
         if (chatEndRef.current) {
@@ -173,14 +193,78 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
         <div className="absolute inset-0 pointer-events-none font-sans text-white flex flex-col">
 
             {/* --- 0. WEATHER & TIME --- */}
-            <div className="absolute top-2 right-2 md:top-6 md:right-6 z-40 pointer-events-auto scale-90 md:scale-100 origin-top-right">
+            <div id="weather-display" className="absolute top-2 right-2 md:top-6 md:right-6 z-40 pointer-events-auto scale-90 md:scale-100 origin-top-right flex items-start gap-4">
                 <WeatherTimeDisplay timezone={timezone} />
+
+                {/* PROFILE MENU */}
+                <div className="relative">
+                    <button
+                        id="profile-btn"
+                        onClick={() => setIsProfileOpen(!isProfileOpen)}
+                        className="w-10 h-10 rounded-full bg-black/60 backdrop-blur-xl border border-white/20 flex items-center justify-center text-white hover:bg-white/10 transition-all active:scale-95 shadow-lg"
+                    >
+                        <UserIcon size={20} />
+                    </button>
+
+                    {isProfileOpen && (
+                        <div className="absolute top-full right-0 mt-2 w-56 bg-[#0a0a0a] border border-white/10 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right">
+                            <div className="p-4 border-b border-white/5 bg-white/5">
+                                <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Signed in as</p>
+                                <p className="text-sm font-bold text-white truncate" title={userEmail}>{userEmail || 'Explorer'}</p>
+                            </div>
+                            <div className="p-1">
+                                <button
+                                    onClick={() => {
+                                        onRestartTutorial();
+                                        setIsProfileOpen(false);
+                                    }}
+                                    className="w-full text-left px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-white/10 flex items-center gap-3 transition-colors"
+                                >
+                                    <HelpCircle size={16} className="text-blue-400" />
+                                    Restart Tutorial
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        onSignOut();
+                                        setIsProfileOpen(false);
+                                    }}
+                                    className="w-full text-left px-3 py-2.5 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 flex items-center gap-3 transition-colors"
+                                >
+                                    <LogOut size={16} />
+                                    Sign Out
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
+
+            {/* --- SCANNING POPUP (Near Search Bar) --- */}
+            {isLoadingCrowd && !isCustomSearching && (
+                <div className="absolute top-36 left-4 right-4 md:top-24 md:left-8 md:right-auto md:w-auto z-50 pointer-events-none animate-in fade-in slide-in-from-top-4 duration-300 flex justify-center md:justify-start">
+                    <div className="bg-black/80 backdrop-blur-xl border border-blue-500/30 rounded-2xl py-3 px-5 shadow-[0_0_20px_rgba(59,130,246,0.2)] flex items-center gap-4 max-w-sm">
+                        <div className="relative flex-shrink-0">
+                            <div className="absolute inset-0 bg-blue-500 blur-md rounded-full animate-pulse"></div>
+                            <Loader2 className="relative z-10 text-blue-400 animate-spin" size={20} />
+                        </div>
+                        <div className="flex flex-col">
+                            <span className="text-white text-sm font-bold tracking-wide">
+                                {isCustomSearching ? "SEARCHING..." : "SCANNING SECTOR"}
+                            </span>
+                            <span className="text-blue-200/70 text-xs font-mono">
+                                {isCustomSearching
+                                    ? "Finding locals according to your preference..."
+                                    : "Searching for locals to talk with... Please wait."}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* --- 1. TOP NAVIGATION --- */}
             <div className="absolute top-0 left-0 w-full z-30 p-4 pt-16 md:pt-6 flex flex-col gap-3 transition-all duration-300 pointer-events-none">
                 <div className="flex items-start gap-3 w-full max-w-5xl mx-auto md:mx-0 pointer-events-auto">
-                    <div className="flex-1 max-w-[85%] md:max-w-[28rem] shadow-2xl relative mx-auto md:mx-0">
+                    <div id="search-bar" className="flex-1 max-w-[85%] md:max-w-[28rem] shadow-2xl relative mx-auto md:mx-0">
                         <form onSubmit={handleSubmit} className="relative group">
                             <div className="absolute inset-0 bg-black/60 backdrop-blur-xl rounded-full border border-white/20 transition-all group-focus-within:bg-black/80 group-focus-within:border-blue-500/50 shadow-lg group-focus-within:shadow-blue-500/20"></div>
                             <div className="relative flex items-center px-4 py-3 gap-3">
@@ -243,7 +327,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
             {!showCrowdSelection && (
                 <div className={`absolute right-4 z-20 pointer-events-auto flex flex-col gap-3 transition-all duration-300 ${showResultsList ? 'bottom-48 md:bottom-8' : 'bottom-24 md:bottom-8'}`}>
                     {/* Zoom Controls */}
-                    <div className="flex flex-col gap-1 bg-black/60 backdrop-blur-xl border border-white/20 rounded-full overflow-hidden shadow-lg">
+                    <div id="zoom-controls" className="flex flex-col gap-1 bg-black/60 backdrop-blur-xl border border-white/20 rounded-full overflow-hidden shadow-lg">
                         <button
                             onClick={onZoomIn}
                             className="w-12 h-12 md:w-14 md:h-14 flex items-center justify-center text-white hover:bg-white/10 transition-colors active:bg-white/20"
@@ -270,6 +354,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                     </div>
 
                     <button
+                        id="locate-btn"
                         onClick={onUseCurrentLocation}
                         className="w-12 h-12 md:w-14 md:h-14 bg-black/60 backdrop-blur-xl border border-white/20 rounded-full flex items-center justify-center text-white shadow-lg hover:bg-blue-600 hover:border-blue-400 transition-all active:scale-90"
                         title="Locate Me"
@@ -281,7 +366,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
 
             {/* --- 3. RESULTS --- */}
             {showResultsList && (
-                <div className="absolute bottom-0 left-0 w-full md:top-28 md:bottom-auto md:left-4 md:w-[26rem] z-20 pointer-events-auto animate-in slide-in-from-bottom-10 md:slide-in-from-left-10 duration-500">
+                <div id="results-list" className="absolute bottom-0 left-0 w-full md:top-28 md:bottom-auto md:left-4 md:w-[26rem] z-20 pointer-events-auto animate-in slide-in-from-bottom-10 md:slide-in-from-left-10 duration-500">
                     <div className="md:hidden absolute -top-20 inset-x-0 h-20 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
                     <div className="bg-[#0f0f0f] md:bg-black/60 backdrop-blur-xl border-t md:border border-white/10 rounded-t-2xl md:rounded-2xl overflow-hidden shadow-2xl max-h-[60vh] md:max-h-[70vh] flex flex-col">
                         <div className="md:hidden w-full flex justify-center pt-3 pb-1">
@@ -328,7 +413,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
             )}
 
             {/* --- 4. MARKER DETAILS --- */}
-            {showMarkerSheet && (
+            {showMarkerSheet && !isLoadingCrowd && (
                 <div className="absolute bottom-0 left-0 w-full md:bottom-8 md:right-8 md:left-auto md:w-[24rem] z-20 pointer-events-auto animate-in slide-in-from-bottom-full duration-500 ease-out">
                     <div className="bg-[#0a0a0a] md:bg-black/80 backdrop-blur-2xl rounded-t-3xl md:rounded-3xl border-t md:border border-white/10 shadow-2xl overflow-hidden">
                         <div className="relative h-32 md:h-40 bg-gradient-to-br from-slate-900 via-blue-950 to-black p-6 flex flex-col justify-end">
@@ -549,24 +634,73 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                                 ) : (
                                     /* CROWD LIST CONTENT */
                                     <div className="p-2 space-y-2">
-                                        {crowd.map((member, idx) => (
-                                            <div
-                                                key={idx}
-                                                onClick={() => !isSummoning && onSelectMember(member)}
-                                                className="group relative bg-white/5 border border-white/5 hover:border-blue-500/50 hover:bg-white/10 rounded-xl p-4 cursor-pointer transition-all active:scale-[0.98]"
+                                        {/* Custom Search Input */}
+                                        <div className="mb-4 px-2">
+                                            <form
+                                                onSubmit={(e) => {
+                                                    e.preventDefault();
+                                                    const form = e.target as HTMLFormElement;
+                                                    const input = form.elements.namedItem('query') as HTMLInputElement;
+                                                    if (input.value.trim()) {
+                                                        setIsCustomSearching(true);
+                                                        onCustomCrowdSearch(input.value.trim());
+                                                        input.value = '';
+                                                    }
+                                                }}
+                                                className="relative group"
                                             >
-                                                <div className="flex items-start justify-between mb-2">
-                                                    <div>
-                                                        <h3 className="font-bold text-white text-sm">{member.name}</h3>
-                                                        <p className="text-blue-300 text-[10px] font-mono uppercase tracking-wider">
-                                                            {member.age} • {member.occupation}
-                                                        </p>
-                                                    </div>
-                                                    {isSummoning ? <Loader2 className="animate-spin text-blue-400" size={14} /> : <Radio size={14} className="text-gray-500 group-hover:text-blue-400" />}
+                                                <input
+                                                    type="text"
+                                                    name="query"
+                                                    placeholder="Find specific locals (e.g. 'Doctor', 'Alice', '25yo')..."
+                                                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-4 pr-12 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all"
+                                                />
+                                                <button
+                                                    type="submit"
+                                                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded-lg transition-colors"
+                                                >
+                                                    <Search size={14} />
+                                                </button>
+                                            </form>
+                                        </div>
+
+                                        {/* Custom Search Loading State */}
+                                        {isLoadingCrowd && isCustomSearching ? (
+                                            <div className="flex flex-col items-center justify-center py-12 space-y-4 animate-in fade-in duration-300">
+                                                <div className="relative">
+                                                    <div className="absolute inset-0 bg-blue-500 blur-xl rounded-full animate-pulse opacity-50"></div>
+                                                    <Loader2 className="relative z-10 text-blue-400 animate-spin" size={32} />
                                                 </div>
-                                                <p className="text-xs text-gray-400 line-clamp-2 leading-relaxed">"{member.bio}"</p>
+                                                <div className="text-center">
+                                                    <h3 className="text-white font-bold text-sm mb-1">SEARCHING...</h3>
+                                                    <p className="text-blue-200/60 text-xs font-mono max-w-[200px] mx-auto">
+                                                        Finding locals according to your preference...
+                                                    </p>
+                                                </div>
                                             </div>
-                                        ))}
+                                        ) : (
+                                            /* Results List */
+                                            crowd.map((member, idx) => (
+                                                <div
+                                                    key={idx}
+                                                    onClick={() => !isSummoning && onSelectMember(member)}
+                                                    className="group relative bg-white/5 border border-white/5 hover:border-blue-500/50 hover:bg-white/10 rounded-xl p-4 cursor-pointer transition-all active:scale-[0.98]"
+                                                >
+                                                    <div className="flex items-start justify-between mb-2">
+                                                        <div>
+                                                            <h3 className="font-bold text-white text-sm">{member.name}</h3>
+                                                            <p className="text-blue-300 text-[10px] font-mono uppercase tracking-wider">
+                                                                {member.age} • {member.occupation}
+                                                            </p>
+                                                        </div>
+                                                        {isSummoning ? <Loader2 className="animate-spin text-blue-400" size={14} /> : <Radio size={14} className="text-gray-500 group-hover:text-blue-400" />}
+                                                    </div>
+                                                    <p className="text-xs text-gray-400 line-clamp-2 leading-relaxed group-hover:text-gray-300 transition-colors">
+                                                        {member.bio}
+                                                    </p>
+                                                </div>
+                                            ))
+                                        )}
                                     </div>
                                 )}
                             </div>
