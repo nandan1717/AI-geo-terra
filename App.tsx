@@ -4,6 +4,7 @@ const GlobeScene = React.lazy(() => import('./components/GlobeScene'));
 import UIOverlay from './components/UIOverlay';
 import Auth from './components/Auth';
 import TutorialOverlay, { TutorialStep } from './components/TutorialOverlay';
+import ErrorBoundary from './components/ErrorBoundary';
 import { supabase } from './services/supabaseClient';
 import { Session } from '@supabase/supabase-js';
 import { LocationMarker, SearchState, LocalPersona, ChatMessage, CameraControlRef, CrowdMember } from './types';
@@ -278,6 +279,10 @@ const App: React.FC = () => {
     setCrowd([]);
   }, []);
 
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+
+  // ... (existing code)
+
   const handleSelectMember = useCallback(async (member: CrowdMember) => {
     if (!selectedMarker) return;
 
@@ -285,6 +290,19 @@ const App: React.FC = () => {
     try {
       const localPersona = await connectWithCrowdMember(member, selectedMarker);
       setPersona(localPersona);
+
+      // Start a new session in DB
+      try {
+        const { chatService } = await import('./services/chatService');
+        const session = await chatService.createSession(localPersona, selectedMarker);
+        setCurrentSessionId(session.id);
+
+        // Save initial greeting
+        await chatService.saveMessage(session.id, { role: 'model', text: localPersona.message });
+      } catch (e) {
+        console.warn("Failed to create chat session:", e);
+      }
+
       setChatHistory([{ role: 'model', text: localPersona.message }]);
       setSuggestions(localPersona.suggestedQuestions);
     } catch (error: any) {
@@ -295,24 +313,18 @@ const App: React.FC = () => {
   }, [selectedMarker]);
 
   const handleClosePersona = useCallback(() => {
-    if (persona) { // Save current persona and chat history before closing
-      setLastPersona(persona);
-      setLastChatHistory(chatHistory);
-    }
+    // Just close, state is already saved in DB
     setPersona(null);
     setChatHistory([]);
     setSuggestions([]);
-  }, [persona, chatHistory]);
+    setCurrentSessionId(null);
+    setLastPersona(null); // No longer needed for "Resume" button if we have full history
+  }, []);
 
-  const handleResumeChat = useCallback(() => { // Fixed handleResumeChat
-    if (lastPersona) {
-      setPersona(lastPersona);
-      setChatHistory(lastChatHistory);
-      // Clear last persona and chat history after resuming
-      setLastPersona(null);
-      setLastChatHistory([]);
-    }
-  }, [lastPersona, lastChatHistory]);
+  // Replaced by handleResumeSession from Profile
+  const handleResumeChat = useCallback(() => {
+    // Legacy resume - can be removed or kept for quick toggle
+  }, []);
 
   const handleSendMessage = useCallback(async (text: string) => {
     if (!persona || !selectedMarker) return;
@@ -322,13 +334,18 @@ const App: React.FC = () => {
     // Optimistically update history
     setChatHistory(prev => [...prev, newUserMessage]);
 
+    // Save User Message DB
+    if (currentSessionId) {
+      import('./services/chatService').then(({ chatService }) => {
+        chatService.saveMessage(currentSessionId, newUserMessage);
+      });
+    }
+
     // Clear suggestions while loading
     setSuggestions([]);
     setIsChatLoading(true);
 
     try {
-      // Note: We pass the updated history array (including newUserMessage)
-      // The service will handle slicing it correctly for the API call
       const { text: responseText, suggestions: newSuggestions, sources } = await chatWithPersona(
         persona,
         selectedMarker.name,
@@ -336,14 +353,49 @@ const App: React.FC = () => {
         text
       );
 
-      setChatHistory(prev => [...prev, { role: 'model', text: responseText, sources: sources }]);
+      const modelMessage: ChatMessage = { role: 'model', text: responseText, sources: sources };
+      setChatHistory(prev => [...prev, modelMessage]);
       setSuggestions(newSuggestions);
+
+      // Save Model Message DB
+      if (currentSessionId) {
+        import('./services/chatService').then(({ chatService }) => {
+          chatService.saveMessage(currentSessionId, modelMessage);
+        });
+      }
+
     } catch (error) {
       console.error("Failed to send message", error);
     } finally {
       setIsChatLoading(false);
     }
-  }, [persona, selectedMarker, chatHistory]);
+  }, [persona, selectedMarker, chatHistory, currentSessionId]);
+
+  // New Handler for Resuming from Profile
+  const handleResumeSession = useCallback(async (sessionId: string, savedPersona: LocalPersona, location: LocationMarker) => {
+    setIsLoadingCrowd(true); // Show loading
+    try {
+      const { chatService } = await import('./services/chatService');
+      const messages = await chatService.getSessionMessages(sessionId);
+
+      // Restore State
+      setMarkers([location]);
+      setSelectedMarker(location);
+      setPersona(savedPersona);
+      setChatHistory(messages);
+      setCurrentSessionId(sessionId);
+
+      // Fly to location
+      if (globeRef.current) {
+        globeRef.current.flyTo(location.latitude, location.longitude);
+      }
+
+    } catch (e) {
+      console.error("Failed to resume session:", e);
+    } finally {
+      setIsLoadingCrowd(false);
+    }
+  }, []);
 
   const handleZoomIn = useCallback(() => {
     if (globeRef.current) {
@@ -372,66 +424,69 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="relative w-full h-screen bg-black overflow-hidden">
+    <ErrorBoundary>
+      <div className="relative w-full h-screen bg-black overflow-hidden">
 
-      {/* 3D Scene Layer */}
-      <div className="absolute inset-0 z-0">
-        <Suspense fallback={<div className="w-full h-full bg-black flex items-center justify-center text-white">Initializing Planetary Systems...</div>}>
-          <GlobeScene
-            ref={globeRef}
-            markers={markers}
-            onMarkerClick={handleMarkerClick}
-            isPaused={!!selectedMarker}
-          />
-        </Suspense>
+        {/* 3D Scene Layer */}
+        <div className="absolute inset-0 z-0">
+          <Suspense fallback={<div className="w-full h-full bg-black flex items-center justify-center text-white">Initializing Planetary Systems...</div>}>
+            <GlobeScene
+              ref={globeRef}
+              markers={markers}
+              onMarkerClick={handleMarkerClick}
+              isPaused={!!selectedMarker}
+            />
+          </Suspense>
+        </div>
+
+        {/* UI Layer */}
+        <UIOverlay
+          onSearch={handleSearch}
+          onClearResults={handleClearResults}
+          searchState={searchState}
+
+          markers={markers}
+          selectedMarker={selectedMarker}
+          onSelectMarker={handleSelectMarker}
+          onCloseMarker={handleCloseMarker}
+          onUseCurrentLocation={handleUseCurrentLocation}
+
+          crowd={crowd}
+          isLoadingCrowd={isLoadingCrowd}
+          onCustomCrowdSearch={handleCustomCrowdSearch}
+          onSelectMember={handleSelectMember}
+
+          persona={persona}
+          isSummoning={isSummoning}
+          onClosePersona={handleClosePersona}
+          lastPersona={lastPersona}
+          onResumeChat={handleResumeChat}
+          timezone={selectedMarker?.timezone}
+          chatHistory={chatHistory}
+          onSendMessage={handleSendMessage}
+          isChatLoading={isChatLoading}
+          suggestions={suggestions}
+
+          onZoomIn={handleZoomIn}
+          onZoomOut={handleZoomOut}
+          onResetView={handleResetView}
+
+          userEmail={session?.user?.email}
+          onSignOut={handleSignOut}
+          onRestartTutorial={handleRestartTutorial}
+          onResumeSession={handleResumeSession}
+        />
+
+        <TutorialOverlay
+          isOpen={tutorialPhase !== 'none'}
+          steps={tutorialPhase === 'initial' ? initialTutorialSteps : postSearchTutorialSteps}
+          onComplete={handleTutorialComplete}
+          onSkip={handleTutorialComplete}
+        />
+
+
       </div>
-
-      {/* UI Layer */}
-      <UIOverlay
-        onSearch={handleSearch}
-        onClearResults={handleClearResults}
-        searchState={searchState}
-
-        markers={markers}
-        selectedMarker={selectedMarker}
-        onSelectMarker={handleSelectMarker}
-        onCloseMarker={handleCloseMarker}
-        onUseCurrentLocation={handleUseCurrentLocation}
-
-        crowd={crowd}
-        isLoadingCrowd={isLoadingCrowd}
-        onCustomCrowdSearch={handleCustomCrowdSearch}
-        onSelectMember={handleSelectMember}
-
-        persona={persona}
-        isSummoning={isSummoning}
-        onClosePersona={handleClosePersona}
-        lastPersona={lastPersona}
-        onResumeChat={handleResumeChat}
-        timezone={selectedMarker?.timezone}
-        chatHistory={chatHistory}
-        onSendMessage={handleSendMessage}
-        isChatLoading={isChatLoading}
-        suggestions={suggestions}
-
-        onZoomIn={handleZoomIn}
-        onZoomOut={handleZoomOut}
-        onResetView={handleResetView}
-
-        userEmail={session?.user?.email}
-        onSignOut={handleSignOut}
-        onRestartTutorial={handleRestartTutorial}
-      />
-
-      <TutorialOverlay
-        isOpen={tutorialPhase !== 'none'}
-        steps={tutorialPhase === 'initial' ? initialTutorialSteps : postSearchTutorialSteps}
-        onComplete={handleTutorialComplete}
-        onSkip={handleTutorialComplete}
-      />
-
-
-    </div>
+    </ErrorBoundary>
   );
 };
 

@@ -21,6 +21,9 @@ export default function Auth() {
                 const { error } = await supabase.auth.signUp({
                     email,
                     password,
+                    options: {
+                        emailRedirectTo: window.location.origin
+                    }
                 });
                 if (error) throw error;
                 setMessage({ type: 'success', text: 'Check your email for the confirmation link!' });
@@ -42,6 +45,9 @@ export default function Auth() {
         try {
             const { error } = await supabase.auth.signInWithOAuth({
                 provider: 'google',
+                options: {
+                    redirectTo: window.location.origin
+                }
             });
             if (error) throw error;
         } catch (error: any) {

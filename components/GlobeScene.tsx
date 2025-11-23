@@ -61,46 +61,49 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, onMarker
           maximumRenderTimeChange: Infinity
         });
 
-        // 2. Explicitly Add Imagery Layer (Bing Maps Hybrid - Asset ID 3)
-        try {
-          console.log("Loading Imagery...");
-          const imageryProvider = await Cesium.IonImageryProvider.fromAssetId(3);
-          if (viewer.isDestroyed()) return; // Safety check
-          viewer.imageryLayers.addImageryProvider(imageryProvider);
-        } catch (e) {
-          if (viewer.isDestroyed()) return; // Safety check
-          console.error("Failed to load Ion Imagery, falling back to ArcGIS", e);
-          const fallbackImagery = await Cesium.ArcGisMapServerImageryProvider.fromUrl(
-            "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer"
-          );
-          if (viewer.isDestroyed()) return; // Safety check
-          viewer.imageryLayers.addImageryProvider(fallbackImagery);
+        if (!viewer) {
+          console.error("Cesium Viewer failed to initialize");
+          return;
         }
 
-        // 3. Explicitly Add Terrain (Cesium World Terrain)
-        try {
-          console.log("Loading Terrain...");
-          const terrainProvider = await Cesium.createWorldTerrainAsync({
-            requestWaterMask: false, // Disable water mask for perf
-            requestVertexNormals: false // Disable vertex normals for perf
-          });
-          if (viewer.isDestroyed()) return; // Safety check
-          viewer.scene.terrainProvider = terrainProvider;
-        } catch (e) {
-          if (viewer.isDestroyed()) return; // Safety check
-          console.warn("Failed to load World Terrain, using Ellipsoid", e);
-          viewer.scene.terrainProvider = new Cesium.EllipsoidTerrainProvider();
+        console.log("DEBUG: Viewer initialized", viewer);
+        if (!viewer.scene) {
+          return;
         }
 
-        // 4. Add 3D Buildings (OSM)
-        try {
-          console.log("Loading 3D Buildings...");
-          const buildingsTileset = await Cesium.createOsmBuildingsAsync();
-          if (viewer.isDestroyed()) return; // Safety check
-          viewer.scene.primitives.add(buildingsTileset);
-        } catch (e) {
-          console.warn("Could not load OSM Buildings", e);
-        }
+        // Parallelize Asset Loading
+        console.log("Initializing Planetary Assets...");
+
+        const [imageryResult, terrainResult] = await Promise.allSettled([
+          // 1. Imagery
+          Cesium.IonImageryProvider.fromAssetId(3).then((provider: any) => {
+            if (!viewer.isDestroyed()) viewer.imageryLayers.addImageryProvider(provider);
+          }).catch(async (e: any) => {
+            console.error("Failed to load Ion Imagery, falling back to ArcGIS", e);
+            const fallback = await Cesium.ArcGisMapServerImageryProvider.fromUrl(
+              "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer"
+            );
+            if (!viewer.isDestroyed()) viewer.imageryLayers.addImageryProvider(fallback);
+          }),
+
+          // 2. Terrain
+          Cesium.createWorldTerrainAsync({
+            requestWaterMask: false,
+            requestVertexNormals: false
+          }).then((provider: any) => {
+            if (!viewer.isDestroyed()) viewer.scene.terrainProvider = provider;
+          }).catch((e: any) => {
+            console.warn("Failed to load World Terrain, using Ellipsoid", e);
+            if (!viewer.isDestroyed()) viewer.scene.terrainProvider = new Cesium.EllipsoidTerrainProvider();
+          }),
+
+          // 3. Buildings - REMOVED for performance
+          // Cesium.createOsmBuildingsAsync().then((tileset: any) => {
+          //   if (!viewer.isDestroyed()) viewer.scene.primitives.add(tileset);
+          // }).catch((e: any) => {
+          //   console.warn("Could not load OSM Buildings", e);
+          // })
+        ]);
 
         if (viewer.isDestroyed()) return; // Final safety check
 
@@ -115,7 +118,7 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, onMarker
 
         // Fix: Do NOT set baseColor to Black if you want to avoid "black holes" when imagery fails.
         // However, for a space look, black is standard. We rely on imagery loading.
-        viewer.scene.globe.baseColor = Cesium.Color.BLACK;
+        // viewer.scene.globe.baseColor = Cesium.Color.BLACK; // This line is now effectively overridden by the DEBUG line above
 
         viewer.scene.globe.depthTestAgainstTerrain = true;
         viewer.scene.globe.showGroundAtmosphere = true; // Enable ground atmosphere for that "blue marble" look
@@ -196,6 +199,8 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, onMarker
         case 'State': return new Cesium.DistanceDisplayCondition(0.0, 5000000.0);
         case 'City': return new Cesium.DistanceDisplayCondition(0.0, 250000.0); // Visible only when closer (< 250km)
         case 'Place': return new Cesium.DistanceDisplayCondition(0.0, 50000.0); // Visible only when very close (< 50km)
+        case 'Business': return new Cesium.DistanceDisplayCondition(0.0, 25000.0); // Visible only when extremely close (< 25km)
+        case 'Landmark': return new Cesium.DistanceDisplayCondition(0.0, 100000.0); // Visible from moderate distance (< 100km)
         default: return new Cesium.DistanceDisplayCondition(0.0, 5000000.0); // Default to State level
       }
     };

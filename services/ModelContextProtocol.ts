@@ -35,12 +35,15 @@ export class MCPContextServer {
             const intentPrompt = `
                 Current Location: "${locationName}"
                 
+                Current Time: "${new Date().toLocaleString()}"
+                
                 Chat History:
                 ${recentChat}
                 
                 User's Latest Message: "${query}"
                 
                 Task: Create a Google Search query to find SPECIFIC, REAL-TIME facts to answer the user.
+                - TIME SENSITIVE: If user asks "what time is it" or "news today", use the Current Time above.
                 - RESOLVE PRONOUNS: If user says "give me their number", look at history to find WHO "they" are (e.g., "Sal & Carmine").
                 - BE SPECIFIC: Include "phone number", "address", "menu", "hours" if asked.
                 - If the user is just saying "hello" or general chit-chat, return "SKIP".

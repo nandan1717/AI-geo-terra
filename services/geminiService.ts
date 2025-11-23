@@ -34,19 +34,66 @@ const handleGeminiError = (error: any, context: string) => {
   throw new Error(`Connection Failed: ${context}.`);
 };
 
+
+
+// --- CACHE LAYER ---
+class ServiceCache {
+  private static STORAGE_KEY = 'gemini_terra_cache_v1';
+  private static EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+  static get<T>(key: string): T | null {
+    try {
+      const item = localStorage.getItem(`${this.STORAGE_KEY}_${key}`);
+      if (!item) return null;
+
+      const { value, timestamp } = JSON.parse(item);
+      if (Date.now() - timestamp > this.EXPIRY_MS) {
+        localStorage.removeItem(`${this.STORAGE_KEY}_${key}`);
+        return null;
+      }
+      return value;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static set(key: string, value: any): void {
+    try {
+      const item = JSON.stringify({ value, timestamp: Date.now() });
+      localStorage.setItem(`${this.STORAGE_KEY}_${key}`, item);
+    } catch (e) {
+      console.warn('Cache quota exceeded');
+    }
+  }
+}
+
 // --- 1. MAPS & LOCATION (Gemini - Best for Tools) ---
 export const fetchLocationsFromQuery = async (query: string): Promise<LocationMarker[]> => {
+  const cacheKey = `loc_${query.toLowerCase().trim()}`;
+  const cached = ServiceCache.get<LocationMarker[]>(cacheKey);
+  if (cached) return cached;
+
   try {
-    // Simplified prompt for Gemini to avoid hallucinations
+    // Enhanced prompt for "Smart Planet Search"
+    // Handles:
+    // 1. Direct place names ("Paris")
+    // 2. Business names ("MN Garg Trading Co in Bathinda")
+    // 3. Natural language queries ("highest mountain peak", "capital of france")
     const prompt = `
-      Identify locations in the text: "${query}".
-      Return a JSON array of objects with these fields:
-      - name: string (official name)
+      Find the real-world location(s) that best match the user's query: "${query}".
+      
+      Rules:
+      - If the query is a specific place or business, find its exact location.
+      - If the query is a description (e.g., "highest mountain"), identify the place (e.g., "Mount Everest") and return its location.
+      - If multiple relevant locations exist, return the top 1-3 most relevant ones.
+      
+      Return a STRICT JSON array of objects with these fields:
+      - name: string (official name of the place)
       - latitude: number
       - longitude: number
-      - description: string (1 sentence summary)
-      - type: "Country" | "State" | "City" | "Place"
-      - timezone: string (IANA format e.g., "Europe/London" or "America/New_York")
+      - description: string (1 sentence summary explaining why this place matches the query)
+      - type: "Country" | "State" | "City" | "Place" | "Business" | "Landmark"
+      - timezone: string (IANA format e.g., "Europe/London")
       - country: string (optional)
       - region: string (optional, e.g., state/province)
     `;
@@ -67,7 +114,13 @@ export const fetchLocationsFromQuery = async (query: string): Promise<LocationMa
 
     try {
       const data = JSON.parse(jsonStr);
-      return Array.isArray(data) ? data : [];
+      const resultData = Array.isArray(data) ? data.map((item: any, index: number) => ({
+        ...item,
+        id: `loc_${Date.now()}_${index}`,
+        type: item.type || 'Place'
+      })) : [];
+      if (resultData.length > 0) ServiceCache.set(cacheKey, resultData);
+      return resultData;
     } catch (e) {
       // Fallback: Try internal knowledge if search JSON is malformed
       return await fetchLocationsInternalFallback(query);
@@ -86,11 +139,20 @@ const fetchLocationsInternalFallback = async (query: string): Promise<LocationMa
       contents: `List 1 real location for "${query}" as JSON Array with name, lat, lng, description, region, country, type (Country/State/City/Place).`,
       config: { responseMimeType: "application/json", temperature: 0 }
     });
-    return JSON.parse(result.text);
+    const data = JSON.parse(result.text);
+    return Array.isArray(data) ? data.map((item: any, index: number) => ({
+      ...item,
+      id: `loc_fallback_${Date.now()}_${index}`,
+      type: item.type || 'Place'
+    })) : [];
   } catch (e) { return []; }
 }
 
 export const getPlaceFromCoordinates = async (lat: number, lng: number): Promise<LocationMarker> => {
+  const cacheKey = `geo_${lat.toFixed(3)}_${lng.toFixed(3)}`;
+  const cached = ServiceCache.get<LocationMarker>(cacheKey);
+  if (cached) return cached;
+
   try {
     const result = await ai.models.generateContent({
       model: MODEL_NAME,
@@ -103,7 +165,8 @@ export const getPlaceFromCoordinates = async (lat: number, lng: number): Promise
     const jsonStr = jsonMatch ? jsonMatch[0] : "{}";
     const data = JSON.parse(jsonStr);
 
-    return {
+    const place: LocationMarker = {
+      id: `loc_${lat}_${lng}`,
       name: data.name || `Sector ${lat.toFixed(2)}, ${lng.toFixed(2)}`,
       latitude: lat,
       longitude: lng,
@@ -112,8 +175,11 @@ export const getPlaceFromCoordinates = async (lat: number, lng: number): Promise
       country: data.country || "",
       type: data.type || "Place"
     };
+    ServiceCache.set(cacheKey, place);
+    return place;
   } catch (error) {
     return {
+      id: `loc_${lat}_${lng}`,
       name: "Current Location",
       latitude: lat,
       longitude: lng,
@@ -124,6 +190,45 @@ export const getPlaceFromCoordinates = async (lat: number, lng: number): Promise
 
 // --- 2. CROWD GENERATION (DeepSeek - Best for Creative Writing) ---
 export const fetchCrowd = async (location: LocationMarker, customQuery?: string): Promise<CrowdMember[]> => {
+  // 1. If Custom Query -> Bypass Cache, go straight to AI
+  if (customQuery) {
+    return await generateCrowdWithAI(location, customQuery);
+  }
+
+  // 2. Standard Query -> Check Supabase Cache first
+  try {
+    // Import dynamically to avoid circular dependency issues if any, though safe here
+    const { supabase } = await import('./supabaseClient');
+
+    const { data, error } = await supabase
+      .from('location_crowd_cache')
+      .select('crowd_data')
+      .eq('location_name', location.name)
+      .eq('country', location.country || '') // Handle optional country
+      .maybeSingle();
+
+    if (data && data.crowd_data) {
+      console.log("Hit Supabase Cache for Crowd:", location.name);
+      return data.crowd_data as CrowdMember[];
+    }
+  } catch (err) {
+    console.warn("Supabase Cache Check Failed:", err);
+  }
+
+  // 3. Cache Miss -> Generate with AI
+  const members = await generateCrowdWithAI(location);
+
+  // 4. Save to Supabase (Fire and Forget)
+  saveCrowdToCache(location, members);
+
+  return members;
+}
+
+const generateCrowdWithAI = async (location: LocationMarker, customQuery?: string): Promise<CrowdMember[]> => {
+  const cacheKey = `crowd_${location.name}_${customQuery || 'default'}`;
+  const cached = ServiceCache.get<CrowdMember[]>(cacheKey);
+  if (cached) return cached;
+
   const localTime = getLocalTime(location.longitude);
 
   try {
@@ -153,7 +258,9 @@ export const fetchCrowd = async (location: LocationMarker, customQuery?: string)
     ], true);
 
     const data = JSON.parse(responseText);
-    return data.members || [];
+    const members = data.members || [];
+    if (members.length > 0) ServiceCache.set(cacheKey, members);
+    return members;
 
   } catch (error: any) {
     console.error("DeepSeek Crowd Error, falling back to Gemini", error);
@@ -173,6 +280,22 @@ const fetchCrowdFallback = async (location: LocationMarker, customQuery?: string
     config: { responseMimeType: "application/json" }
   });
   return JSON.parse(result.text).members || [];
+}
+
+const saveCrowdToCache = async (location: LocationMarker, members: CrowdMember[]) => {
+  try {
+    const { supabase } = await import('./supabaseClient');
+    await supabase.from('location_crowd_cache').insert({
+      location_name: location.name,
+      country: location.country || '',
+      latitude: location.latitude,
+      longitude: location.longitude,
+      crowd_data: members
+    });
+    console.log("Saved crowd to Supabase:", location.name);
+  } catch (e) {
+    console.warn("Failed to save to Supabase cache", e);
+  }
 }
 
 // --- 3. PERSONA CONNECTION (Gemini Image + DeepSeek Text) ---

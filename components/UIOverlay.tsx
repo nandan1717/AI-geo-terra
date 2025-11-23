@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Search, MapPin, X, Loader2, Radio, Info, Users, Send, Minus, Plus, Navigation, Globe, ChevronLeft, Sparkles, Activity, History, MessageSquare, AlertCircle as AlertIcon, Crosshair, LogOut, HelpCircle, User as UserIcon } from 'lucide-react';
+import { Search, MapPin, X, Loader2, Radio, Info, Users, Send, Minus, Plus, Navigation, Globe, ChevronLeft, Sparkles, Activity, History, MessageSquare, AlertCircle as AlertIcon, Crosshair, LogOut, HelpCircle, User as UserIcon, Clock } from 'lucide-react';
 import { LocationMarker, SearchState, LocalPersona, ChatMessage, CrowdMember } from '../types';
 
 import WeatherTimeDisplay from './WeatherTimeDisplay';
@@ -45,7 +45,108 @@ interface UIOverlayProps {
     userEmail?: string;
     onSignOut: () => void;
     onRestartTutorial: () => void;
+    onResumeSession: (sessionId: string, persona: LocalPersona, location: LocationMarker) => void;
 }
+
+const HistoryList: React.FC<{ onResume: (id: string, p: LocalPersona, l: LocationMarker) => void, onClose: () => void }> = ({ onResume, onClose }) => {
+    const [sessions, setSessions] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [searchQuery, setSearchQuery] = useState('');
+
+    const fetchSessions = useCallback(() => {
+        setLoading(true);
+        import('../services/chatService').then(({ chatService }) => {
+            chatService.getRecentSessions(searchQuery).then(setSessions).finally(() => setLoading(false));
+        });
+    }, [searchQuery]);
+
+    useEffect(() => {
+        const timer = setTimeout(fetchSessions, 300);
+        return () => clearTimeout(timer);
+    }, [fetchSessions]);
+
+    const handleDelete = async (e: React.MouseEvent, id: string) => {
+        e.stopPropagation();
+        if (confirm("Are you sure you want to delete this chat?")) {
+            const { chatService } = await import('../services/chatService');
+            await chatService.deleteSession(id);
+            fetchSessions();
+        }
+    };
+
+    const handleToggleFavorite = async (e: React.MouseEvent, id: string, currentStatus: boolean) => {
+        e.stopPropagation();
+        const { chatService } = await import('../services/chatService');
+        await chatService.toggleFavorite(id, !currentStatus);
+        fetchSessions();
+    };
+
+    return (
+        <div className="flex flex-col h-full">
+            <div className="px-2 mb-2">
+                <input
+                    type="text"
+                    placeholder="Search history..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500/50"
+                />
+            </div>
+
+            {loading ? (
+                <div className="p-4 text-center text-xs text-gray-500">Loading history...</div>
+            ) : sessions.length === 0 ? (
+                <div className="p-4 text-center text-xs text-gray-500">No chats found.</div>
+            ) : (
+                <div className="space-y-1">
+                    {sessions.map(session => (
+                        <div
+                            key={session.id}
+                            onClick={() => {
+                                onResume(session.id, session.persona_data, {
+                                    id: `loc_${session.location_lat}_${session.location_lng}`,
+                                    name: session.location_name,
+                                    latitude: session.location_lat,
+                                    longitude: session.location_lng,
+                                    description: "Resumed Location",
+                                    type: "Place"
+                                });
+                                onClose();
+                            }}
+                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 flex items-center gap-3 transition-colors group cursor-pointer relative"
+                        >
+                            <img src={session.persona_image_url} alt={session.persona_name} className="w-8 h-8 rounded-full object-cover border border-white/10" />
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1">
+                                    <p className="text-xs font-bold text-white truncate">{session.persona_name}</p>
+                                    {session.is_favorite && <Sparkles size={10} className="text-yellow-400 fill-yellow-400" />}
+                                </div>
+                                <p className="text-[10px] text-gray-400 truncate">{session.location_name}</p>
+                            </div>
+
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                    onClick={(e) => handleToggleFavorite(e, session.id, session.is_favorite)}
+                                    className={`p-1.5 rounded-full hover:bg-white/20 ${session.is_favorite ? 'text-yellow-400' : 'text-gray-400'}`}
+                                    title="Favorite"
+                                >
+                                    <Sparkles size={12} className={session.is_favorite ? "fill-yellow-400" : ""} />
+                                </button>
+                                <button
+                                    onClick={(e) => handleDelete(e, session.id)}
+                                    className="p-1.5 rounded-full hover:bg-red-500/20 text-gray-400 hover:text-red-400"
+                                    title="Delete"
+                                >
+                                    <X size={12} />
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
 
 const UIOverlay: React.FC<UIOverlayProps> = ({
     onSearch,
@@ -82,7 +183,8 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
 
     userEmail,
     onSignOut,
-    onRestartTutorial
+    onRestartTutorial,
+    onResumeSession
 }) => {
     const [inputValue, setInputValue] = useState('');
     const [chatInput, setChatInput] = useState('');
@@ -207,12 +309,19 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                     </button>
 
                     {isProfileOpen && (
-                        <div className="absolute top-full right-0 mt-2 w-56 bg-[#0a0a0a] border border-white/10 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right">
-                            <div className="p-4 border-b border-white/5 bg-white/5">
+                        <div className="absolute top-full right-0 mt-2 w-80 bg-[#0a0a0a] border border-white/10 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right max-h-[80vh] flex flex-col">
+                            <div className="p-4 border-b border-white/5 bg-white/5 shrink-0">
                                 <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Signed in as</p>
                                 <p className="text-sm font-bold text-white truncate" title={userEmail}>{userEmail || 'Explorer'}</p>
                             </div>
-                            <div className="p-1">
+
+                            {/* History Section */}
+                            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                                <p className="px-2 py-1 text-[10px] text-gray-500 uppercase tracking-wider font-bold">Recent Chats</p>
+                                <HistoryList onResume={onResumeSession} onClose={() => setIsProfileOpen(false)} />
+                            </div>
+
+                            <div className="p-1 border-t border-white/5 bg-black/20 shrink-0">
                                 <button
                                     onClick={() => {
                                         onRestartTutorial();

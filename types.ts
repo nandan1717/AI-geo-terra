@@ -5,7 +5,7 @@ export interface LocationMarker {
   latitude: number;
   longitude: number;
   description: string;
-  type?: 'Country' | 'State' | 'City' | 'Place';
+  type?: 'Country' | 'State' | 'City' | 'Place' | 'Business' | 'Landmark';
   timezone?: string; // e.g., "Europe/London" or "UTC+1"
   country?: string;
   region?: string;
