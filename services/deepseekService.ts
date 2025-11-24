@@ -36,6 +36,12 @@ export const queryDeepSeek = async (
     }
 
     const data = await response.json();
+
+    // Track Usage (DeepSeek is cheap, est $0.001 per call)
+    import('./usageTracker').then(({ APIUsageTracker }) => {
+      APIUsageTracker.trackCall('deepseek_chat', 0.001, 'DeepSeek', API_KEY);
+    });
+
     return data.choices[0].message.content;
 
   } catch (error) {

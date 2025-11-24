@@ -36,6 +36,20 @@ export interface LocalPersona extends CrowdMember {
   suggestedQuestions: string[]; // Initial context-aware questions
 }
 
+export interface UserProfile {
+  id: string;
+  username?: string;
+  full_name?: string;
+  bio?: string;
+  occupation?: string;
+  location?: string;
+  age?: number;
+  avatar_url?: string;
+  avatar_source?: 'upload' | 'library';
+  is_private: boolean;
+  is_verified_human: boolean;
+}
+
 export interface ChatMessage {
   role: 'user' | 'model';
   text: string;

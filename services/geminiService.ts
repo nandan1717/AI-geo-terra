@@ -3,8 +3,13 @@ import { GoogleGenAI } from "@google/genai";
 import { LocationMarker, LocalPersona, ChatMessage, CrowdMember, ChatResponse } from "../types";
 import { queryDeepSeek } from "./deepseekService";
 
-const MODEL_NAME = "gemini-2.5-flash";
+import { PORTRAIT_DATA } from './portraitLibrary';
+
+const MODEL_NAME = "gemini-2.0-flash-exp";
 const IMAGEN_MODEL = "imagen-4.0-generate-001";
+
+// Cost Optimization: Static Portrait Library (Unsplash)
+const PORTRAIT_LIBRARY = PORTRAIT_DATA;
 
 // Initialize Gemini client for Tools (Search/Maps) and Images
 // Use Vite environment variable with fallback
@@ -35,11 +40,12 @@ const handleGeminiError = (error: any, context: string) => {
 };
 
 
+import { APIUsageTracker } from './usageTracker';
 
 // --- CACHE LAYER ---
-class ServiceCache {
+export class ServiceCache {
   private static STORAGE_KEY = 'gemini_terra_cache_v1';
-  private static EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
+  private static EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
   static get<T>(key: string): T | null {
     try {
@@ -74,29 +80,37 @@ export const fetchLocationsFromQuery = async (query: string): Promise<LocationMa
   if (cached) return cached;
 
   try {
+    // 1. Check Supabase Cache (Global)
+    try {
+      const { supabase } = await import('./supabaseClient');
+      const { data } = await supabase
+        .from('location_search_cache')
+        .select('results, hit_count')
+        .eq('query', cacheKey) // cacheKey is already normalized "loc_..."
+        .maybeSingle();
+
+      if (data && data.results) {
+        console.log("✅ Global Supabase Cache Hit:", query);
+        // Fire-and-forget update for hit count
+        supabase.from('location_search_cache')
+          .update({ hit_count: (data.hit_count || 0) + 1 })
+          .eq('query', cacheKey)
+          .then();
+
+        return data.results as LocationMarker[];
+      }
+    } catch (err) {
+      console.warn("Supabase Cache Check Failed:", err);
+    }
+
     // Enhanced prompt for "Smart Planet Search"
     // Handles:
     // 1. Direct place names ("Paris")
     // 2. Business names ("MN Garg Trading Co in Bathinda")
     // 3. Natural language queries ("highest mountain peak", "capital of france")
-    const prompt = `
-      Find the real-world location(s) that best match the user's query: "${query}".
-      
-      Rules:
-      - If the query is a specific place or business, find its exact location.
-      - If the query is a description (e.g., "highest mountain"), identify the place (e.g., "Mount Everest") and return its location.
-      - If multiple relevant locations exist, return the top 1-3 most relevant ones.
-      
-      Return a STRICT JSON array of objects with these fields:
-      - name: string (official name of the place)
-      - latitude: number
-      - longitude: number
-      - description: string (1 sentence summary explaining why this place matches the query)
-      - type: "Country" | "State" | "City" | "Place" | "Business" | "Landmark"
-      - timezone: string (IANA format e.g., "Europe/London")
-      - country: string (optional)
-      - region: string (optional, e.g., state/province)
-    `;
+    const prompt = `Find location for: "${query}". Return JSON array: [{name, latitude, longitude, description, type, timezone, country?, region?}]. Max 3 results.`;
+
+    await APIUsageTracker.trackCall('location_search', 0.002, 'Gemini', apiKey); // Est cost for Flash + Search
 
     const result = await ai.models.generateContent({
       model: MODEL_NAME,
@@ -119,7 +133,22 @@ export const fetchLocationsFromQuery = async (query: string): Promise<LocationMa
         id: `loc_${Date.now()}_${index}`,
         type: item.type || 'Place'
       })) : [];
-      if (resultData.length > 0) ServiceCache.set(cacheKey, resultData);
+
+      if (resultData.length > 0) {
+        ServiceCache.set(cacheKey, resultData);
+
+        // Save to Supabase (Global Cache)
+        try {
+          const { supabase } = await import('./supabaseClient');
+          await supabase.from('location_search_cache').insert({
+            query: cacheKey,
+            results: resultData,
+            hit_count: 1
+          });
+        } catch (e) {
+          console.warn("Failed to save to Supabase cache", e);
+        }
+      }
       return resultData;
     } catch (e) {
       // Fallback: Try internal knowledge if search JSON is malformed
@@ -135,10 +164,11 @@ export const fetchLocationsFromQuery = async (query: string): Promise<LocationMa
 const fetchLocationsInternalFallback = async (query: string): Promise<LocationMarker[]> => {
   try {
     const result = await ai.models.generateContent({
-      model: MODEL_NAME,
+      model: "gemini-2.0-flash-exp", // Cost optimization: Flash 2.0
       contents: `List 1 real location for "${query}" as JSON Array with name, lat, lng, description, region, country, type (Country/State/City/Place).`,
       config: { responseMimeType: "application/json", temperature: 0 }
     });
+    await APIUsageTracker.trackCall('location_fallback', 0.0005, 'Gemini', apiKey);
     const data = JSON.parse(result.text);
     return Array.isArray(data) ? data.map((item: any, index: number) => ({
       ...item,
@@ -155,10 +185,11 @@ export const getPlaceFromCoordinates = async (lat: number, lng: number): Promise
 
   try {
     const result = await ai.models.generateContent({
-      model: MODEL_NAME,
+      model: "gemini-2.0-flash-exp", // Cost optimization: Flash 2.0
       contents: `Reverse Geocode: ${lat}, ${lng}. Return JSON object: {name, region, country, description, type (Country/State/City/Place)}.`,
       config: { temperature: 0, tools: [{ googleSearch: {} }] }
     });
+    await APIUsageTracker.trackCall('reverse_geo', 0.001, 'Gemini', apiKey);
 
     const text = result.text || "{}";
     const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -233,16 +264,14 @@ const generateCrowdWithAI = async (location: LocationMarker, customQuery?: strin
 
   try {
     // Use DeepSeek for more diverse and human-like personas
-    let systemPrompt = "You are a creative writer. Output strictly valid JSON.";
-    let userPrompt = `Generate 3 distinct individuals at: ${location.name}, ${location.region}, ${location.country}. Time: ${localTime}.
+    let systemPrompt = "Creative writer. Output strictly valid JSON.";
+    let userPrompt = `Generate 3 distinct people at: ${location.name}, ${location.country}. Time: ${localTime}.
             JSON Schema: { "members": [{ "name", "gender", "occupation", "age", "lineage", "mindset", "currentActivity", "mood", "bio" }] }`;
 
     if (customQuery) {
-      systemPrompt = "You are a precise character generator. Output strictly valid JSON.";
-      userPrompt = `Generate 3 distinct individuals at: ${location.name}, ${location.region}, ${location.country}. Time: ${localTime}.
-        CRITICAL INSTRUCTION: All 3 individuals must strictly match the description: "${customQuery}".
-        However, they must be distinct from each other in terms of age, specific role/nuance, personality, and background.
-        Example: If query is "Doctor", generate a young resident, an experienced surgeon, and a traditional healer.
+      systemPrompt = "Character generator. Output strictly valid JSON.";
+      userPrompt = `Generate 3 distinct people at: ${location.name}. Match description: "${customQuery}".
+        Vary age/role/personality.
         JSON Schema: { "members": [{ "name", "gender", "occupation", "age", "lineage", "mindset", "currentActivity", "mood", "bio" }] }`;
     }
 
@@ -275,10 +304,11 @@ const fetchCrowdFallback = async (location: LocationMarker, customQuery?: string
     : `Generate 3 locals at ${location.name}. JSON format.`;
 
   const result = await ai.models.generateContent({
-    model: MODEL_NAME,
+    model: "gemini-2.0-flash-exp", // Cost optimization: Flash 2.0
     contents: prompt,
     config: { responseMimeType: "application/json" }
   });
+  await APIUsageTracker.trackCall('crowd_fallback', 0.0005, 'Gemini', apiKey);
   return JSON.parse(result.text).members || [];
 }
 
@@ -312,18 +342,50 @@ export const connectWithCrowdMember = async (member: CrowdMember, location: Loca
       {
         role: "user",
         content: `Character: ${member.name}, ${member.occupation} in ${location.name}.
-            User: A mysterious voice from the sky.
-            Task: JSON Output { "message": "Short, shocked reaction in local dialect.", "questions": ["Q1", "Q2", "Q3"] }`
+            User: Voice from sky.
+            Task: JSON { "message": "Short reaction in local dialect.", "questions": ["Q1", "Q2", "Q3"] }`
       }
     ], true);
 
     const reactionData = JSON.parse(reactionJson);
 
-    // B. Gemini Imagen for Visuals (Multimodal)
-    const imagePrompt = `Photorealistic portrait of ${member.name}, ${member.occupation} in ${location.name}, ${location.country}. ${member.gender}, ${member.age} yo. Looking up at sky in awe. Cinematic, 8k.`;
-
+    // B. Visuals (Cost Optimized: Cache -> Library -> Gen)
     let imageUrl = "";
+    const cacheKey = `img_${member.gender}_${member.age}_${member.occupation}_${location.country}`.replace(/\s+/g, '_').toLowerCase();
+
     try {
+      // 1. Check Supabase Cache
+      const { supabase } = await import('./supabaseClient');
+      const { data } = await supabase
+        .from('persona_image_cache')
+        .select('image_url')
+        .eq('cache_key', cacheKey)
+        .maybeSingle();
+
+      if (data && data.image_url) {
+        imageUrl = data.image_url;
+      } else {
+        // 2. Use Static Library (Context-Aware)
+        const isFemale = member.gender.toLowerCase().includes('female');
+        const isOld = member.age > 45;
+
+        let libraryKey = isFemale ? 'female' : 'male';
+        libraryKey += isOld ? '_old' : '_young';
+
+        // @ts-ignore - Dynamic key access
+        const library = PORTRAIT_LIBRARY[libraryKey] || PORTRAIT_LIBRARY[isFemale ? 'female_young' : 'male_young'] || PORTRAIT_LIBRARY.default;
+
+        imageUrl = library[Math.floor(Math.random() * library.length)];
+
+        // 3. Save assignment to cache (so this "type" of person always gets this image)
+        await supabase.from('persona_image_cache').insert({
+          cache_key: cacheKey,
+          image_url: imageUrl
+        });
+      }
+
+      /* 
+      // EXPENSIVE: Imagen Generation (Disabled for cost reduction)
       const imageResult = await ai.models.generateImages({
         model: IMAGEN_MODEL,
         prompt: imagePrompt,
@@ -331,7 +393,12 @@ export const connectWithCrowdMember = async (member: CrowdMember, location: Loca
       });
       const bytes = imageResult.generatedImages?.[0]?.image?.imageBytes;
       if (bytes) imageUrl = `data:image/jpeg;base64,${bytes}`;
-    } catch (e) { console.warn("Image gen failed"); }
+      */
+
+    } catch (e) {
+      console.warn("Image retrieval failed, using fallback");
+      imageUrl = PORTRAIT_LIBRARY.default[0];
+    }
 
     return {
       ...member,

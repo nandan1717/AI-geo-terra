@@ -26,7 +26,26 @@ export class MCPContextServer {
      * Uses Gemini Tools to fetch live data about the user's query in the specific location.
      * NOW CONTEXT-AWARE: Uses history to understand "it", "they", etc.
      */
+    /**
+     * 1. GATHER REAL-TIME CONTEXT
+     * Uses Gemini Tools to fetch live data about the user's query in the specific location.
+     * NOW CONTEXT-AWARE: Uses history to understand "it", "they", etc.
+     */
     static async getRealTimeContext(query: string, locationName: string, history: ChatMessage[]): Promise<string> {
+        // 1. Check Cache
+        // We cache based on location + query to save costs on repeated questions
+        const cacheKey = `mcp_ctx_${locationName}_${query}`.toLowerCase().replace(/\s+/g, '_');
+
+        // Import ServiceCache dynamically or assume it's available if we imported it at top
+        // Since we need to import it, let's do it at the top of the file or dynamically here.
+        // Dynamic import is safer for circular deps if any.
+        const { ServiceCache } = await import('./geminiService');
+        const cached = ServiceCache.get<string>(cacheKey);
+        if (cached) {
+            console.log(`[MCP] Cache Hit for: "${query}"`);
+            return cached;
+        }
+
         try {
             // A. Intent Classification & Query Formulation
             // We ask Gemini to create the best search query for this context, considering history.
@@ -34,7 +53,6 @@ export class MCPContextServer {
 
             const intentPrompt = `
                 Current Location: "${locationName}"
-                
                 Current Time: "${new Date().toLocaleString()}"
                 
                 Chat History:
@@ -42,19 +60,35 @@ export class MCPContextServer {
                 
                 User's Latest Message: "${query}"
                 
-                Task: Create a Google Search query to find SPECIFIC, REAL-TIME facts to answer the user.
-                - TIME SENSITIVE: If user asks "what time is it" or "news today", use the Current Time above.
-                - RESOLVE PRONOUNS: If user says "give me their number", look at history to find WHO "they" are (e.g., "Sal & Carmine").
-                - BE SPECIFIC: Include "phone number", "address", "menu", "hours" if asked.
+                Task: Create a Google Search query to find SPECIFIC, REAL-TIME facts.
+                
+                PRIORITY ORDER:
+                1. **OFFICIAL WEBSITE**: Always try to find the official site first.
+                2. **PRODUCTS/SERVICES**: What do they actually sell/do?
+                3. **REVIEWS**: What do people say?
+                4. **CONTACT**: Address, Phone, Hours.
+
+                Instructions:
+                - If the user asks about a business (e.g., "MN Garg Trading"), generate a query like: "MN Garg Trading Co official website products reviews address phone".
+                - TIME SENSITIVE: If user asks "what time is it", use Current Time.
+                - RESOLVE PRONOUNS: If user says "their number", find WHO "they" are from history.
                 - If the user is just saying "hello" or general chit-chat, return "SKIP".
                 
                 Output: ONLY the query string.
             `;
 
+            // Cost Optimization: Use Flash 2.0 (Valid & Efficient)
+            const INTENT_MODEL = "gemini-2.0-flash-exp";
+
             const intentRes = await ai.models.generateContent({
-                model: MODEL_NAME,
+                model: INTENT_MODEL,
                 contents: intentPrompt,
                 config: { temperature: 0 }
+            });
+
+            // Track Intent Call (Cheap)
+            import('./usageTracker').then(({ APIUsageTracker }) => {
+                APIUsageTracker.trackCall('mcp_intent', 0.0005, 'Gemini', apiKey);
             });
 
             const searchQuery = intentRes.text?.trim() || "";
@@ -64,30 +98,63 @@ export class MCPContextServer {
                 return ""; // No context needed for simple greetings
             }
 
-            // B. Execute Search with Tools
-            const searchRes = await ai.models.generateContent({
-                model: MODEL_NAME,
-                contents: `
-                    Search Query: "${searchQuery}"
-                    Task: Extract EXACT facts.
-                    - Addresses (full street, city, zip)
-                    - Phone Numbers (exact digits)
-                    - Ratings/Reviews
-                    - Business Hours (current status)
-                    - Prices (specific dollar amounts)
-                    
-                    Context: We are in ${locationName}. Ignore results from other cities.
-                    Output: A detailed, bulleted list of VERIFIED FACTS. 
-                    WARNING: Do not invent information. If you can't find it, say "Data not found".
-                `,
-                config: {
-                    tools: [{ googleSearch: {} }],
-                    temperature: 0 // Strict facts
-                }
-            });
+            // B. Execute Search (Hybrid: Tavily Preferred -> Gemini Fallback)
+            let contextData = "";
+            let usedProvider = "Gemini";
 
-            const contextData = searchRes.text || "";
-            console.log(`[MCP] Fetched Context:`, contextData);
+            // 1. Try Tavily First (If Key Exists)
+            try {
+                const { TavilyService } = await import('./tavilyService');
+                // Only use Tavily if we have a focused query
+                const tavilyResult = await TavilyService.search(searchQuery); // Use the CLEAN query, not raw user text
+
+                if (tavilyResult) {
+                    contextData = tavilyResult;
+                    usedProvider = "Tavily";
+                    console.log("[MCP] Used Tavily for context.");
+                }
+            } catch (e) {
+                console.warn("[MCP] Tavily check failed, proceeding to Gemini.");
+            }
+
+            // 2. Fallback to Gemini Tools (If Tavily failed or no key)
+            if (!contextData) {
+                const searchRes = await ai.models.generateContent({
+                    model: MODEL_NAME, // Keep high quality model for reading search results
+                    contents: `
+                        Search Query: "${searchQuery}"
+                        Task: Extract EXACT facts in this PRIORITY ORDER:
+                        1. **OFFICIAL SOURCE**: URL of the official website if found.
+                        2. **PRODUCTS/MENU**: Specific items they sell or services offered.
+                        3. **REVIEWS/REPUTATION**: Star rating and summary of recent feedback.
+                        4. **LOCATION/CONTACT**: Full Address, Phone Number.
+                        5. **HOURS**: Current open/close status.
+                        
+                        Context: We are in ${locationName}. Ignore results from other cities.
+                        Output: A structured, bulleted list.
+                        WARNING: Do not invent information. If you can't find it, say "Data not found".
+                    `,
+                    config: {
+                        tools: [{ googleSearch: {} }],
+                        temperature: 0 // Strict facts
+                    }
+                });
+
+                // Track Search Call (Expensive)
+                import('./usageTracker').then(({ APIUsageTracker }) => {
+                    APIUsageTracker.trackCall('mcp_search', 0.002, 'Gemini', apiKey);
+                });
+
+                contextData = searchRes.text || "";
+            }
+
+            console.log(`[MCP] Fetched Context (${usedProvider}):`, contextData);
+
+            // Save to Cache
+            if (contextData.length > 20) { // Only cache substantial results
+                ServiceCache.set(cacheKey, contextData);
+            }
+
             return contextData;
 
         } catch (error) {
