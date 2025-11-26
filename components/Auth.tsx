@@ -35,6 +35,7 @@ export default function Auth() {
                 if (error) throw error;
             }
         } catch (error: any) {
+            console.error('Auth Error:', error);
             setMessage({ type: 'error', text: error.message });
         } finally {
             setLoading(false);

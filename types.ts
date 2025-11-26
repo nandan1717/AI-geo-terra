@@ -10,6 +10,7 @@ export interface LocationMarker {
   country?: string;
   region?: string;
   googleMapsUri?: string;
+  geojson?: any; // GeoJSON object for boundaries
 }
 
 export interface SearchState {

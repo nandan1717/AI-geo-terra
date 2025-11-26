@@ -3,6 +3,8 @@ import { Search, MapPin, X, Loader2, Radio, Info, Users, Send, Minus, Plus, Navi
 import { LocationMarker, SearchState, LocalPersona, ChatMessage, CrowdMember } from '../types';
 
 import WeatherTimeDisplay from './WeatherTimeDisplay';
+import Sidebar from './Sidebar';
+
 
 
 interface UIOverlayProps {
@@ -295,58 +297,56 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
         <div className="absolute inset-0 pointer-events-none font-sans text-white flex flex-col">
 
             {/* --- 0. WEATHER & TIME --- */}
-            <div id="weather-display" className="absolute top-2 right-2 md:top-6 md:right-6 z-40 pointer-events-auto scale-90 md:scale-100 origin-top-right flex items-start gap-4">
+            <div id="weather-display" className="absolute top-2 right-2 md:top-6 md:right-24 z-40 pointer-events-auto scale-90 md:scale-100 origin-top-right flex items-start gap-4">
                 <WeatherTimeDisplay timezone={timezone} />
-
-                {/* PROFILE MENU */}
-                <div className="relative">
-                    <button
-                        id="profile-btn"
-                        onClick={() => setIsProfileOpen(!isProfileOpen)}
-                        className="w-10 h-10 rounded-full bg-black/60 backdrop-blur-xl border border-white/20 flex items-center justify-center text-white hover:bg-white/10 transition-all active:scale-95 shadow-lg"
-                    >
-                        <UserIcon size={20} />
-                    </button>
-
-                    {isProfileOpen && (
-                        <div className="absolute top-full right-0 mt-2 w-80 bg-[#0a0a0a] border border-white/10 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right max-h-[80vh] flex flex-col">
-                            <div className="p-4 border-b border-white/5 bg-white/5 shrink-0">
-                                <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Signed in as</p>
-                                <p className="text-sm font-bold text-white truncate" title={userEmail}>{userEmail || 'Explorer'}</p>
-                            </div>
-
-                            {/* History Section */}
-                            <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                                <p className="px-2 py-1 text-[10px] text-gray-500 uppercase tracking-wider font-bold">Recent Chats</p>
-                                <HistoryList onResume={onResumeSession} onClose={() => setIsProfileOpen(false)} />
-                            </div>
-
-                            <div className="p-1 border-t border-white/5 bg-black/20 shrink-0">
-                                <button
-                                    onClick={() => {
-                                        onRestartTutorial();
-                                        setIsProfileOpen(false);
-                                    }}
-                                    className="w-full text-left px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-white/10 flex items-center gap-3 transition-colors"
-                                >
-                                    <HelpCircle size={16} className="text-blue-400" />
-                                    Restart Tutorial
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        onSignOut();
-                                        setIsProfileOpen(false);
-                                    }}
-                                    className="w-full text-left px-3 py-2.5 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 flex items-center gap-3 transition-colors"
-                                >
-                                    <LogOut size={16} />
-                                    Sign Out
-                                </button>
-                            </div>
-                        </div>
-                    )}
-                </div>
             </div>
+
+            {/* --- SIDEBAR --- */}
+            <Sidebar
+                onProfileClick={() => setIsProfileOpen(!isProfileOpen)}
+                onAddFriendsClick={() => console.log("Add Friends clicked")}
+                onNotificationsClick={() => console.log("Notifications clicked")}
+                onSettingsClick={() => console.log("Settings clicked")}
+            />
+
+            {/* PROFILE MENU POPUP (Anchored to Sidebar) */}
+            {isProfileOpen && (
+                <div className="absolute top-1/2 right-20 -translate-y-1/2 z-50 w-80 bg-[#0a0a0a] border border-white/10 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-right max-h-[80vh] flex flex-col pointer-events-auto">
+                    <div className="p-4 border-b border-white/5 bg-white/5 shrink-0">
+                        <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Signed in as</p>
+                        <p className="text-sm font-bold text-white truncate" title={userEmail}>{userEmail || 'Explorer'}</p>
+                    </div>
+
+                    {/* History Section */}
+                    <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                        <p className="px-2 py-1 text-[10px] text-gray-500 uppercase tracking-wider font-bold">Recent Chats</p>
+                        <HistoryList onResume={onResumeSession} onClose={() => setIsProfileOpen(false)} />
+                    </div>
+
+                    <div className="p-1 border-t border-white/5 bg-black/20 shrink-0">
+                        <button
+                            onClick={() => {
+                                onRestartTutorial();
+                                setIsProfileOpen(false);
+                            }}
+                            className="w-full text-left px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-white/10 flex items-center gap-3 transition-colors"
+                        >
+                            <HelpCircle size={16} className="text-blue-400" />
+                            Restart Tutorial
+                        </button>
+                        <button
+                            onClick={() => {
+                                onSignOut();
+                                setIsProfileOpen(false);
+                            }}
+                            className="w-full text-left px-3 py-2.5 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 flex items-center gap-3 transition-colors"
+                        >
+                            <LogOut size={16} />
+                            Sign Out
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* --- SCANNING POPUP (Near Search Bar) --- */}
             {isLoadingCrowd && !isCustomSearching && (
@@ -432,44 +432,54 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                 </div>
             </div>
 
-            {/* --- 2. GPS & ZOOM FAB --- */}
+            {/* --- 2. GPS & ZOOM FAB (Bottom Right Horizontal - Consolidated) --- */}
             {!showCrowdSelection && (
-                <div className={`absolute right-4 z-20 pointer-events-auto flex flex-col gap-3 transition-all duration-300 ${showResultsList ? 'bottom-48 md:bottom-8' : 'bottom-24 md:bottom-8'}`}>
-                    {/* Zoom Controls */}
-                    <div id="zoom-controls" className="flex flex-col gap-1 bg-black/60 backdrop-blur-xl border border-white/20 rounded-full overflow-hidden shadow-lg">
-                        <button
-                            onClick={onZoomIn}
-                            className="w-12 h-12 md:w-14 md:h-14 flex items-center justify-center text-white hover:bg-white/10 transition-colors active:bg-white/20"
-                            title="Zoom In"
-                        >
-                            <Plus size={24} />
-                        </button>
-                        <div className="h-[1px] bg-white/10 w-full"></div>
+                <div className={`absolute right-24 z-20 pointer-events-auto flex flex-col gap-3 transition-all duration-300 bottom-8`}>
+
+                    {/* Unified Navigation Bar */}
+                    <div className="flex items-center gap-1 bg-black/60 backdrop-blur-xl border border-white/20 rounded-full overflow-hidden shadow-lg p-1">
+
+                        {/* Zoom Group */}
                         <button
                             onClick={onZoomOut}
-                            className="w-12 h-12 md:w-14 md:h-14 flex items-center justify-center text-white hover:bg-white/10 transition-colors active:bg-white/20"
+                            className="w-10 h-10 flex items-center justify-center text-white hover:bg-white/10 transition-colors rounded-full active:bg-white/20"
                             title="Zoom Out"
                         >
-                            <Minus size={24} />
+                            <Minus size={20} />
                         </button>
-                        <div className="h-[1px] bg-white/10 w-full"></div>
+                        <button
+                            onClick={onZoomIn}
+                            className="w-10 h-10 flex items-center justify-center text-white hover:bg-white/10 transition-colors rounded-full active:bg-white/20"
+                            title="Zoom In"
+                        >
+                            <Plus size={20} />
+                        </button>
+
+                        {/* Separator */}
+                        <div className="w-[1px] h-6 bg-white/10 mx-1"></div>
+
+                        {/* Locate */}
+                        <button
+                            id="locate-btn"
+                            onClick={onUseCurrentLocation}
+                            className="w-10 h-10 flex items-center justify-center text-white hover:bg-blue-600/20 hover:text-blue-400 transition-colors rounded-full active:bg-white/20"
+                            title="Locate Me"
+                        >
+                            <Crosshair size={20} />
+                        </button>
+
+                        {/* Separator */}
+                        <div className="w-[1px] h-6 bg-white/10 mx-1"></div>
+
+                        {/* Reset */}
                         <button
                             onClick={onResetView}
-                            className="w-12 h-12 md:w-14 md:h-14 flex items-center justify-center text-white hover:bg-white/10 transition-colors active:bg-white/20"
+                            className="w-10 h-10 flex items-center justify-center text-white hover:bg-white/10 transition-colors rounded-full active:bg-white/20"
                             title="Reset View"
                         >
                             <Navigation size={20} className="rotate-45" />
                         </button>
                     </div>
-
-                    <button
-                        id="locate-btn"
-                        onClick={onUseCurrentLocation}
-                        className="w-12 h-12 md:w-14 md:h-14 bg-black/60 backdrop-blur-xl border border-white/20 rounded-full flex items-center justify-center text-white shadow-lg hover:bg-blue-600 hover:border-blue-400 transition-all active:scale-90"
-                        title="Locate Me"
-                    >
-                        <Crosshair size={isMobile ? 20 : 24} />
-                    </button>
                 </div>
             )}
 

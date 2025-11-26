@@ -116,6 +116,7 @@ const App: React.FC = () => {
     return () => subscription.unsubscribe();
   }, []);
 
+
   useEffect(() => {
     // Check if initial tutorial has been seen
     const hasSeenInitial = localStorage.getItem('gemini_terra_tutorial_initial_seen');
@@ -245,7 +246,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoadingCrowd(false);
     }
-  }, []);
+  }, [searchState.query]);
 
   const handleCustomCrowdSearch = useCallback(async (query: string) => {
     if (!selectedMarker) return;

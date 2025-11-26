@@ -44,7 +44,7 @@ import { APIUsageTracker } from './usageTracker';
 
 // --- CACHE LAYER ---
 export class ServiceCache {
-  private static STORAGE_KEY = 'gemini_terra_cache_v1';
+  private static STORAGE_KEY = 'gemini_terra_cache_v2'; // Bumped to v2 to clear old non-Mapbox results
   private static EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
   static get<T>(key: string): T | null {
@@ -128,13 +128,21 @@ export const fetchLocationsFromQuery = async (query: string): Promise<LocationMa
 
     try {
       const data = JSON.parse(jsonStr);
-      const resultData = Array.isArray(data) ? data.map((item: any, index: number) => ({
+      let resultData = Array.isArray(data) ? data.map((item: any, index: number) => ({
         ...item,
         id: `loc_${Date.now()}_${index}`,
         type: item.type || 'Place'
       })) : [];
 
       if (resultData.length > 0) {
+        // Enhance with GeoJSON for "Exact Borders"
+        // We fetch for the top result to ensure the "Green Glow" works perfectly for the main match.
+        // Parallelize if multiple, but be mindful of Nominatim rate limits (1 req/sec usually).
+        // Let's just do the first one for now to be safe and fast.
+        const topResult = resultData[0];
+        // GeoJSON fetching removed as per user request
+
+
         ServiceCache.set(cacheKey, resultData);
 
         // Save to Supabase (Global Cache)
@@ -160,6 +168,10 @@ export const fetchLocationsFromQuery = async (query: string): Promise<LocationMa
     return [];
   }
 };
+
+// Helper to fetch GeoJSON from Nominatim (OpenStreetMap)
+// fetchGeoJSON removed as per user request
+
 
 const fetchLocationsInternalFallback = async (query: string): Promise<LocationMarker[]> => {
   try {
