@@ -4,6 +4,7 @@ import { LocationMarker, SearchState, LocalPersona, ChatMessage, CrowdMember } f
 
 import WeatherTimeDisplay from './WeatherTimeDisplay';
 import Sidebar from './Sidebar';
+const ProfileModal = React.lazy(() => import('./ProfileModal'));
 
 
 
@@ -303,50 +304,22 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
 
             {/* --- SIDEBAR --- */}
             <Sidebar
-                onProfileClick={() => setIsProfileOpen(!isProfileOpen)}
+                onProfileClick={() => setIsProfileOpen(true)}
                 onAddFriendsClick={() => console.log("Add Friends clicked")}
                 onNotificationsClick={() => console.log("Notifications clicked")}
                 onSettingsClick={() => console.log("Settings clicked")}
             />
 
-            {/* PROFILE MENU POPUP (Anchored to Sidebar) */}
-            {isProfileOpen && (
-                <div className="absolute top-1/2 right-20 -translate-y-1/2 z-50 w-80 bg-[#0a0a0a] border border-white/10 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-right max-h-[80vh] flex flex-col pointer-events-auto">
-                    <div className="p-4 border-b border-white/5 bg-white/5 shrink-0">
-                        <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Signed in as</p>
-                        <p className="text-sm font-bold text-white truncate" title={userEmail}>{userEmail || 'Explorer'}</p>
-                    </div>
-
-                    {/* History Section */}
-                    <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                        <p className="px-2 py-1 text-[10px] text-gray-500 uppercase tracking-wider font-bold">Recent Chats</p>
-                        <HistoryList onResume={onResumeSession} onClose={() => setIsProfileOpen(false)} />
-                    </div>
-
-                    <div className="p-1 border-t border-white/5 bg-black/20 shrink-0">
-                        <button
-                            onClick={() => {
-                                onRestartTutorial();
-                                setIsProfileOpen(false);
-                            }}
-                            className="w-full text-left px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-white/10 flex items-center gap-3 transition-colors"
-                        >
-                            <HelpCircle size={16} className="text-blue-400" />
-                            Restart Tutorial
-                        </button>
-                        <button
-                            onClick={() => {
-                                onSignOut();
-                                setIsProfileOpen(false);
-                            }}
-                            className="w-full text-left px-3 py-2.5 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 flex items-center gap-3 transition-colors"
-                        >
-                            <LogOut size={16} />
-                            Sign Out
-                        </button>
-                    </div>
-                </div>
-            )}
+            {/* PROFILE MODAL */}
+            <React.Suspense fallback={null}>
+                {isProfileOpen && (
+                    <ProfileModal
+                        isOpen={isProfileOpen}
+                        onClose={() => setIsProfileOpen(false)}
+                        userEmail={userEmail}
+                    />
+                )}
+            </React.Suspense>
 
             {/* --- SCANNING POPUP (Near Search Bar) --- */}
             {isLoadingCrowd && !isCustomSearching && (

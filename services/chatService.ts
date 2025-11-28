@@ -162,5 +162,26 @@ export const chatService = {
 
         if (error) throw error;
         return data;
+    },
+    /**
+     * Fetches unique AI locals the user has chatted with.
+     */
+    async getUniqueLocals() {
+        const { data, error } = await supabase
+            .from('chat_sessions')
+            .select('persona_name, persona_occupation, persona_image_url, location_name, last_message_at')
+            .order('last_message_at', { ascending: false });
+
+        if (error) throw error;
+
+        // Dedup by persona_name
+        const uniqueLocals = new Map();
+        data?.forEach(session => {
+            if (!uniqueLocals.has(session.persona_name)) {
+                uniqueLocals.set(session.persona_name, session);
+            }
+        });
+
+        return Array.from(uniqueLocals.values());
     }
 };
