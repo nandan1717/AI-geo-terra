@@ -4,6 +4,7 @@ import { supabase } from '../services/supabaseClient';
 import { socialService, Post, Comment } from '../services/socialService';
 import { chatService } from '../services/chatService';
 import { getPlaceFromCoordinates } from '../services/geminiService';
+import LocationInput from './LocationInput';
 
 // --- Types ---
 interface ProfileModalProps {
@@ -158,29 +159,28 @@ const CreatePost: React.FC<{ onPostCreated: () => void, onClose: () => void }> =
                             </button>
                         </div>
                     )}
-                    <div className="flex items-center justify-between mt-3">
-                        <div className="flex gap-2">
-                            <label className="p-2 text-blue-400 hover:bg-blue-500/10 rounded-full cursor-pointer transition-colors">
+                    <div className="flex items-center justify-between mt-3 gap-2">
+                        <div className="flex items-center gap-2 flex-1">
+                            <label className="p-2 text-blue-400 hover:bg-blue-500/10 rounded-full cursor-pointer transition-colors flex-shrink-0">
                                 <ImageIcon size={20} />
                                 <input type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
                             </label>
-                            <button
-                                onClick={handleLocationTag}
-                                disabled={gettingLocation}
-                                className={`p-2 rounded-full transition-colors ${location ? 'text-green-400 bg-green-500/10' : 'text-blue-400 hover:bg-blue-500/10'}`}
-                            >
-                                {gettingLocation ? <Loader2 size={20} className="animate-spin" /> : <MapPin size={20} />}
-                            </button>
+                            <div className="flex-1 max-w-xs">
+                                <LocationInput
+                                    value={location ? location.name : ''}
+                                    onLocationSelect={setLocation}
+                                    placeholder="Search location..."
+                                />
+                            </div>
                         </div>
                         <button
                             onClick={handleSubmit}
                             disabled={!image || !location || loading}
-                            className="px-4 py-1.5 bg-blue-600 text-white rounded-full text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-500 transition-colors"
+                            className="px-4 py-1.5 bg-blue-600 text-white rounded-full text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-500 transition-colors flex-shrink-0"
                         >
                             {loading ? <Loader2 size={16} className="animate-spin" /> : 'Post'}
                         </button>
                     </div>
-                    {location && <p className="text-xs text-green-400 mt-1">📍 {location.name} ({location.lat.toFixed(2)}, {location.lng.toFixed(2)})</p>}
                 </div>
             </div>
         </div>
@@ -521,12 +521,11 @@ const EditProfile: React.FC<{ profile: UserProfile, onSave: () => void, onCancel
                 </div>
                 <div>
                     <label className="text-xs text-gray-400 block mb-1">Location</label>
-                    <div className="flex gap-2">
-                        <input type="text" value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })} className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 outline-none" />
-                        <button type="button" onClick={handleGetCurrentLocation} disabled={gettingLocation} className="px-3 py-2 bg-blue-600/20 text-blue-400 rounded-lg hover:bg-blue-600/30 transition-colors">
-                            {gettingLocation ? <Loader2 size={16} className="animate-spin" /> : <MapPin size={16} />}
-                        </button>
-                    </div>
+                    <LocationInput
+                        value={formData.location}
+                        onLocationSelect={(loc) => setFormData({ ...formData, location: loc.name })}
+                        placeholder="Search location..."
+                    />
                 </div>
             </div>
 
