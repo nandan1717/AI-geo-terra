@@ -3,24 +3,15 @@ import { app, firebaseConfig } from "./firebaseConfig";
 
 const messaging = getMessaging(app);
 
-const VAPID_KEY = 'BCFdla5my9MxCHUTSgfZD7Az_ZzX1TS3hy7X2bHD5_--E8ETL9zAS77PsP_Dw8iM4zWMhMjEfFgWrJO8brsETM4';
-
 export const requestForToken = async () => {
     try {
-        // 1. Register Service Worker with dynamic config
-        const swUrl = new URL('/firebase-messaging-sw.js', window.location.origin);
+        // Register service worker with dynamic Firebase config
+        const registration = await navigator.serviceWorker.register(
+            `/firebase-messaging-sw.js?${new URLSearchParams(firebaseConfig as any).toString()}`
+        );
 
-        // Append config as URL parameters
-        Object.entries(firebaseConfig).forEach(([key, value]) => {
-            swUrl.searchParams.append(key, value);
-        });
-
-        const registration = await navigator.serviceWorker.register(swUrl.toString());
-        console.log('Service Worker registered with dynamic config');
-
-        // 2. Get Token using the registration
         const currentToken = await getToken(messaging, {
-            vapidKey: VAPID_KEY,
+            vapidKey: import.meta.env.VITE_FCM_VAPID_KEY,
             serviceWorkerRegistration: registration
         });
 
