@@ -70,3 +70,42 @@ export interface CameraControlRef {
   zoomOut: () => void;
   resetView: () => void;
 }
+
+// Notification types
+export type NotificationType =
+  | 'FRIEND_REQUEST'
+  | 'FRIEND_ACCEPTED'
+  | 'LOGIN'
+  | 'LOGOUT'
+  | 'APP_TIP'
+  | 'SYSTEM'
+  | 'WELCOME';
+
+export interface Notification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  data?: Record<string, any>;
+  read: boolean;
+  createdAt: Date;
+  expiresAt?: Date;
+}
+
+export interface NotificationData {
+  friendRequest?: {
+    requesterId: string;
+    requesterName: string;
+    requesterAvatar?: string;
+  };
+  friendAccepted?: {
+    friendId: string;
+    friendName: string;
+    friendAvatar?: string;
+  };
+  appTip?: {
+    feature: string;
+    action?: string;
+  };
+}
+

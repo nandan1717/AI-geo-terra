@@ -89,5 +89,57 @@ export class ProfileService {
             });
 
         if (error) throw error;
+
+        // Get requester profile for notification
+        const requesterProfile = await this.getProfile(user.id);
+
+        // Send notification to target user
+        import('./notificationService').then(({ createNotification }) => {
+            createNotification(targetId, 'FRIEND_REQUEST', {
+                requesterName: requesterProfile?.full_name || requesterProfile?.username || 'Someone',
+                requesterId: user.id,
+                requesterAvatar: requesterProfile?.avatar_url
+            }, {
+                friendRequest: {
+                    requesterId: user.id,
+                    requesterName: requesterProfile?.full_name || requesterProfile?.username || 'Someone',
+                    requesterAvatar: requesterProfile?.avatar_url
+                }
+            });
+        });
+    }
+
+    /**
+     * Accept connection request
+     */
+    static async acceptConnectionRequest(requesterId: string) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error("Not authenticated");
+
+        const { error } = await supabase
+            .from('app_connections_v2')
+            .update({ status: 'accepted' })
+            .eq('requester_id', requesterId)
+            .eq('target_id', user.id);
+
+        if (error) throw error;
+
+        // Get accepter profile for notification
+        const accepterProfile = await this.getProfile(user.id);
+
+        // Send notification to requester
+        import('./notificationService').then(({ createNotification }) => {
+            createNotification(requesterId, 'FRIEND_ACCEPTED', {
+                friendName: accepterProfile?.full_name || accepterProfile?.username || 'Someone',
+                friendId: user.id,
+                friendAvatar: accepterProfile?.avatar_url
+            }, {
+                friendAccepted: {
+                    friendId: user.id,
+                    friendName: accepterProfile?.full_name || accepterProfile?.username || 'Someone',
+                    friendAvatar: accepterProfile?.avatar_url
+                }
+            });
+        });
     }
 }

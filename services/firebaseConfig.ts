@@ -7,19 +7,21 @@ import {
   onAuthStateChanged,
   User
 } from "firebase/auth";
+import { getFirestore, Firestore } from "firebase/firestore";
 
 // !!! IMPORTANT: REPLACE WITH YOUR FIREBASE CONFIGURATION !!!
 // 1. Go to console.firebase.google.com
 // 2. Create a project
 // 3. Add a Web App
 // 4. Copy the config object below
-const firebaseConfig = {
-  apiKey: process.env.FIREBASE_API_KEY || "mock-key",
-  authDomain: "mock-project.firebaseapp.com",
-  projectId: "mock-project",
-  storageBucket: "mock-project.appspot.com",
-  messagingSenderId: "00000000000",
-  appId: "1:00000000000:web:00000000000000"
+export const firebaseConfig = {
+  apiKey: "AIzaSyCsNdQiFPQQU0fjFLoTD5JhtVY6cBkAU5s",
+  authDomain: "mortals-bec5e.firebaseapp.com",
+  projectId: "mortals-bec5e",
+  storageBucket: "mortals-bec5e.firebasestorage.app",
+  messagingSenderId: "62623954494",
+  appId: "1:62623954494:web:d54540422939afa2a0036f",
+  measurementId: "G-NXDLZ96XDL"
 };
 
 // Check if the config is still using placeholders
@@ -27,12 +29,15 @@ const isPlaceholderConfig = firebaseConfig.apiKey === "YOUR_API_KEY_HERE";
 
 let auth: any;
 let googleProvider: any;
+let db: Firestore | null = null;
+let app: any = null;
 
 if (!isPlaceholderConfig) {
   try {
-    const app = initializeApp(firebaseConfig);
+    app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     googleProvider = new GoogleAuthProvider();
+    db = getFirestore(app);
   } catch (e) {
     console.warn("Firebase initialization error:", e);
   }
@@ -101,3 +106,5 @@ export const subscribeToAuthChanges = (callback: (user: User | null) => void) =>
 };
 
 export const isMockMode = () => isPlaceholderConfig;
+
+export { db, app };

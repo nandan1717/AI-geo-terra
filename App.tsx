@@ -5,10 +5,12 @@ import UIOverlay from './components/UIOverlay';
 import Auth from './components/Auth';
 import TutorialOverlay, { TutorialStep } from './components/TutorialOverlay';
 import ErrorBoundary from './components/ErrorBoundary';
+
 import { supabase } from './services/supabaseClient';
 import { Session } from '@supabase/supabase-js';
-import { LocationMarker, SearchState, LocalPersona, ChatMessage, CameraControlRef, CrowdMember } from './types';
+import { LocationMarker, SearchState, LocalPersona, ChatMessage, CameraControlRef, CrowdMember, Notification } from './types';
 import { fetchLocationsFromQuery, fetchCrowd, connectWithCrowdMember, chatWithPersona, getPlaceFromCoordinates } from './services/geminiService';
+import { subscribeToNotifications, createNotification, getUnreadCount } from './services/notificationService';
 
 const App: React.FC = () => {
   // Auth State
@@ -45,9 +47,13 @@ const App: React.FC = () => {
   // Tutorial State
   const [tutorialPhase, setTutorialPhase] = useState<'none' | 'initial' | 'post-search'>('none');
 
+  // Notification State
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
   const initialTutorialSteps: TutorialStep[] = [
     {
-      title: "Welcome to Gemini Terra",
+      title: "Welcome to Mortals",
       content: "This is your planetary interface system. Explore the world, discover local populations, and interact with them in real-time.",
       position: "center"
     },
@@ -105,12 +111,68 @@ const App: React.FC = () => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setAuthLoading(false);
+
+      // Subscribe to notifications when user logs in
+      if (session?.user) {
+        const unsubscribe = subscribeToNotifications(session.user.id, (notifs) => {
+          setNotifications(notifs);
+          setUnreadCount(getUnreadCount(notifs));
+        });
+
+        // Fetch user profile to get real name
+        supabase
+          .from('app_profiles_v2')
+          .select('full_name, username')
+          .eq('id', session.user.id)
+          .single()
+          .then(({ data: profile }) => {
+            const rawName = profile?.full_name || profile?.username || session.user.email?.split('@')[0] || 'Commander';
+            // Extract first name (capitalize first letter)
+            const firstName = rawName.split(' ')[0].charAt(0).toUpperCase() + rawName.split(' ')[0].slice(1).toLowerCase();
+
+            // Create welcome notification on first login
+            const hasSeenWelcome = localStorage.getItem('mortals_welcome_notification');
+            if (!hasSeenWelcome) {
+              createNotification(session.user.id, 'WELCOME', {
+                userName: firstName
+              }).then(() => {
+                localStorage.setItem('mortals_welcome_notification', 'true');
+
+                // Schedule a "First Post" nudge after 30 seconds (simulated engagement)
+                setTimeout(() => {
+                  createNotification(session.user.id, 'APP_TIP', {
+                    feature: 'sharing your first moment',
+                    userName: firstName
+                  }, {
+                    appTip: { feature: 'create_post' }
+                  });
+                }, 30000);
+              });
+            } else {
+              // Create login notification for returning users
+              createNotification(session.user.id, 'LOGIN', {
+                userName: firstName
+              });
+            }
+          });
+
+        return () => unsubscribe();
+      }
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+
+      // Subscribe to notifications on auth change
+      if (session?.user) {
+        const unsubscribe = subscribeToNotifications(session.user.id, (notifs) => {
+          setNotifications(notifs);
+          setUnreadCount(getUnreadCount(notifs));
+        });
+        return () => unsubscribe();
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -119,7 +181,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     // Check if initial tutorial has been seen
-    const hasSeenInitial = localStorage.getItem('gemini_terra_tutorial_initial_seen');
+    const hasSeenInitial = localStorage.getItem('mortals_tutorial_initial_seen');
     if (!hasSeenInitial && session) {
       setTimeout(() => setTutorialPhase('initial'), 1000);
     }
@@ -132,9 +194,9 @@ const App: React.FC = () => {
 
   const handleTutorialComplete = () => {
     if (tutorialPhase === 'initial') {
-      localStorage.setItem('gemini_terra_tutorial_initial_seen', 'true');
+      localStorage.setItem('mortals_tutorial_initial_seen', 'true');
     } else if (tutorialPhase === 'post-search') {
-      localStorage.setItem('gemini_terra_tutorial_post_search_seen', 'true');
+      localStorage.setItem('mortals_tutorial_post_search_seen', 'true');
     }
     setTutorialPhase('none');
   };
@@ -160,7 +222,7 @@ const App: React.FC = () => {
         setMarkers(locations);
 
         // Trigger Post-Search Tutorial if not seen
-        const hasSeenPostSearch = localStorage.getItem('gemini_terra_tutorial_post_search_seen');
+        const hasSeenPostSearch = localStorage.getItem('mortals_tutorial_post_search_seen');
         if (!hasSeenPostSearch) {
           setTimeout(() => setTutorialPhase('post-search'), 500);
         }
@@ -473,9 +535,13 @@ const App: React.FC = () => {
           onResetView={handleResetView}
 
           userEmail={session?.user?.email}
+          userId={session?.user?.id}
           onSignOut={handleSignOut}
           onRestartTutorial={handleRestartTutorial}
           onResumeSession={handleResumeSession}
+
+          notifications={notifications}
+          unreadNotifications={unreadCount}
         />
 
         <TutorialOverlay
@@ -484,7 +550,6 @@ const App: React.FC = () => {
           onComplete={handleTutorialComplete}
           onSkip={handleTutorialComplete}
         />
-
 
       </div>
     </ErrorBoundary>

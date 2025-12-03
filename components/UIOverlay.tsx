@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Search, MapPin, X, Loader2, Radio, Info, Users, Send, Minus, Plus, Navigation, Globe, ChevronLeft, Sparkles, Activity, History, MessageSquare, AlertCircle as AlertIcon, Crosshair, LogOut, HelpCircle, User as UserIcon, Clock } from 'lucide-react';
-import { LocationMarker, SearchState, LocalPersona, ChatMessage, CrowdMember } from '../types';
+import { LocationMarker, SearchState, LocalPersona, ChatMessage, CrowdMember, Notification } from '../types';
 
 import WeatherTimeDisplay from './WeatherTimeDisplay';
 import Sidebar from './Sidebar';
+import NotificationPanel from './NotificationPanel';
+import SettingsPanel from './SettingsPanel';
 const ProfileModal = React.lazy(() => import('./ProfileModal'));
 
 
@@ -46,9 +48,14 @@ interface UIOverlayProps {
 
     // Auth & Tutorial
     userEmail?: string;
+    userId?: string;
     onSignOut: () => void;
     onRestartTutorial: () => void;
     onResumeSession: (sessionId: string, persona: LocalPersona, location: LocationMarker) => void;
+
+    // Notifications
+    notifications?: Notification[];
+    unreadNotifications?: number;
 }
 
 const HistoryList: React.FC<{ onResume: (id: string, p: LocalPersona, l: LocationMarker) => void, onClose: () => void }> = ({ onResume, onClose }) => {
@@ -185,14 +192,20 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
     onResetView,
 
     userEmail,
+    userId,
     onSignOut,
     onRestartTutorial,
-    onResumeSession
+    onResumeSession,
+
+    notifications = [],
+    unreadNotifications = 0
 }) => {
     const [inputValue, setInputValue] = useState('');
     const [chatInput, setChatInput] = useState('');
     const [isMobile, setIsMobile] = useState(false);
     const [isProfileOpen, setIsProfileOpen] = useState(false); // Profile Menu State
+    const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false); // Notification Panel State
+    const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false); // Settings Panel State
 
     const inputRef = useRef<HTMLInputElement>(null);
     const chatEndRef = useRef<HTMLDivElement>(null);
@@ -306,8 +319,9 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
             <Sidebar
                 onProfileClick={() => setIsProfileOpen(true)}
                 onAddFriendsClick={() => console.log("Add Friends clicked")}
-                onNotificationsClick={() => console.log("Notifications clicked")}
-                onSettingsClick={() => console.log("Settings clicked")}
+                onNotificationsClick={() => setIsNotificationPanelOpen(true)}
+                onSettingsClick={() => setIsSettingsPanelOpen(true)}
+                unreadNotifications={unreadNotifications}
             />
 
             {/* PROFILE MODAL */}
@@ -320,6 +334,25 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                     />
                 )}
             </React.Suspense>
+
+            {/* NOTIFICATION PANEL */}
+            {userId && (
+                <NotificationPanel
+                    isOpen={isNotificationPanelOpen}
+                    onClose={() => setIsNotificationPanelOpen(false)}
+                    notifications={notifications}
+                    userId={userId}
+                />
+            )}
+
+            {/* SETTINGS PANEL */}
+            <SettingsPanel
+                isOpen={isSettingsPanelOpen}
+                onClose={() => setIsSettingsPanelOpen(false)}
+                onSignOut={onSignOut}
+                onRestartTutorial={onRestartTutorial}
+                userEmail={userEmail}
+            />
 
             {/* --- SCANNING POPUP (Near Search Bar) --- */}
             {isLoadingCrowd && !isCustomSearching && (

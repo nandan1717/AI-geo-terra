@@ -44,7 +44,7 @@ import { APIUsageTracker } from './usageTracker';
 
 // --- CACHE LAYER ---
 export class ServiceCache {
-  private static STORAGE_KEY = 'gemini_terra_cache_v2'; // Bumped to v2 to clear old non-Mapbox results
+  private static STORAGE_KEY = 'mortals_cache_v2'; // Bumped to v2 to clear old non-Mapbox results
   private static EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
   static get<T>(key: string): T | null {

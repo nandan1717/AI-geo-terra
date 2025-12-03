@@ -62,7 +62,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
                     <div className="text-center mb-8">
                         <h1 className="text-4xl font-bold tracking-tighter mb-2 bg-clip-text text-transparent bg-gradient-to-r from-white to-blue-400">
-                            GEMINI TERRA
+                            MORTALS
                         </h1>
                         <p className="text-sm text-gray-400 uppercase tracking-[0.3em]">Planetary Interface System</p>
                     </div>
