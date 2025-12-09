@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#000000"/>
+  <circle cx="256" cy="256" r="200" fill="#000000" stroke="#00ff00" stroke-width="20"/>
+  <path d="M256 56 A200 200 0 0 1 456 256" fill="none" stroke="#00ffff" stroke-width="20"/>
+  <text x="256" y="280" font-family="Arial" font-size="100" fill="white" text-anchor="middle">GT</text>
+</svg>

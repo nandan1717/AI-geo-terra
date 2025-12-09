@@ -6,6 +6,7 @@ import WeatherTimeDisplay from './WeatherTimeDisplay';
 import Sidebar from './Sidebar';
 import NotificationPanel from './NotificationPanel';
 import SettingsPanel from './SettingsPanel';
+import NotificationPermissionCard from './NotificationPermissionCard';
 const ProfileModal = React.lazy(() => import('./ProfileModal'));
 
 
@@ -56,6 +57,13 @@ interface UIOverlayProps {
     // Notifications
     notifications?: Notification[];
     unreadNotifications?: number;
+    onMarkAsRead: (id: string) => void;
+    onMarkAllAsRead: () => void;
+    onDeleteNotification: (id: string) => void;
+    showPermissionCard?: boolean;
+    onPermissionGranted: (token: string) => void;
+    onPermissionDismiss: () => void;
+    lockdownMode?: boolean;
 }
 
 const HistoryList: React.FC<{ onResume: (id: string, p: LocalPersona, l: LocationMarker) => void, onClose: () => void }> = ({ onResume, onClose }) => {
@@ -198,7 +206,14 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
     onResumeSession,
 
     notifications = [],
-    unreadNotifications = 0
+    unreadNotifications = 0,
+    onMarkAsRead,
+    onMarkAllAsRead,
+    onDeleteNotification,
+    showPermissionCard,
+    onPermissionGranted,
+    onPermissionDismiss,
+    lockdownMode = false
 }) => {
     const [inputValue, setInputValue] = useState('');
     const [chatInput, setChatInput] = useState('');
@@ -222,6 +237,13 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
         window.addEventListener('resize', checkMobile);
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
+
+    // Lockdown Mode Effect
+    useEffect(() => {
+        if (lockdownMode && userId) {
+            setIsProfileOpen(true);
+        }
+    }, [lockdownMode, userId]);
 
     // Reset custom searching state when loading finishes
     useEffect(() => {
@@ -317,6 +339,10 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
 
             {/* --- SIDEBAR --- */}
             <Sidebar
+                profileId="profile-btn"
+                addFriendsId="add-friends-btn"
+                notificationsId="notifications-btn"
+                settingsId="settings-btn"
                 onProfileClick={() => setIsProfileOpen(true)}
                 onAddFriendsClick={() => console.log("Add Friends clicked")}
                 onNotificationsClick={() => setIsNotificationPanelOpen(true)}
@@ -329,8 +355,9 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                 {isProfileOpen && (
                     <ProfileModal
                         isOpen={isProfileOpen}
-                        onClose={() => setIsProfileOpen(false)}
+                        onClose={() => !lockdownMode && setIsProfileOpen(false)}
                         userEmail={userEmail}
+                        lockdownMode={lockdownMode}
                     />
                 )}
             </React.Suspense>
@@ -342,6 +369,17 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                     onClose={() => setIsNotificationPanelOpen(false)}
                     notifications={notifications}
                     userId={userId}
+                    onMarkAsRead={onMarkAsRead}
+                    onMarkAllAsRead={onMarkAllAsRead}
+                    onDelete={onDeleteNotification}
+                />
+            )}
+
+            {/* NOTIFICATION PERMISSION CARD */}
+            {showPermissionCard && (
+                <NotificationPermissionCard
+                    onPermissionGranted={onPermissionGranted}
+                    onDismiss={onPermissionDismiss}
                 />
             )}
 
@@ -355,7 +393,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
             />
 
             {/* --- SCANNING POPUP (Near Search Bar) --- */}
-            {isLoadingCrowd && !isCustomSearching && (
+            {isLoadingCrowd && !isCustomSearching && !lockdownMode && (
                 <div className="absolute top-36 left-4 right-4 md:top-24 md:left-8 md:right-auto md:w-auto z-50 pointer-events-none animate-in fade-in slide-in-from-top-4 duration-300 flex justify-center md:justify-start">
                     <div className="bg-black/80 backdrop-blur-xl border border-blue-500/30 rounded-2xl py-3 px-5 shadow-[0_0_20px_rgba(59,130,246,0.2)] flex items-center gap-4 max-w-sm">
                         <div className="relative flex-shrink-0">
@@ -377,69 +415,71 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
             )}
 
             {/* --- 1. TOP NAVIGATION --- */}
-            <div className="absolute top-0 left-0 w-full z-30 p-4 pt-16 md:pt-6 flex flex-col gap-3 transition-all duration-300 pointer-events-none">
-                <div className="flex items-start gap-3 w-full max-w-5xl mx-auto md:mx-0 pointer-events-auto">
-                    <div id="search-bar" className="flex-1 max-w-[85%] md:max-w-[28rem] shadow-2xl relative mx-auto md:mx-0">
-                        <form onSubmit={handleSubmit} className="relative group">
-                            <div className="absolute inset-0 bg-black/60 backdrop-blur-xl rounded-full border border-white/20 transition-all group-focus-within:bg-black/80 group-focus-within:border-blue-500/50 shadow-lg group-focus-within:shadow-blue-500/20"></div>
-                            <div className="relative flex items-center px-4 py-3 gap-3">
-                                <Search size={18} className="text-gray-400 group-focus-within:text-blue-400 shrink-0 transition-colors" />
-                                <input
-                                    ref={inputRef}
-                                    type="text"
-                                    value={inputValue}
-                                    onChange={(e) => setInputValue(e.target.value)}
-                                    placeholder="Search planet..."
-                                    className="flex-1 bg-transparent border-none outline-none text-sm md:text-base text-white placeholder-gray-500 w-full font-medium"
-                                    style={{ fontSize: '16px' }}
-                                />
-                                {searchState.isLoading ? (
-                                    <Loader2 size={18} className="animate-spin text-blue-400 shrink-0" />
-                                ) : (
-                                    inputValue && (
-                                        <button
-                                            type="button"
-                                            onClick={handleClearSearch}
-                                            className="text-gray-500 hover:text-white p-1"
-                                        >
-                                            <X size={16} />
-                                        </button>
-                                    )
-                                )}
-                            </div>
-                        </form>
-
-                        {/* Error Toast */}
-                        {searchState.error && (
-                            <div className="absolute top-full left-0 mt-2 w-full bg-red-500/90 backdrop-blur-md border border-red-400/50 text-white text-xs px-4 py-3 rounded-xl animate-in fade-in slide-in-from-top-2 shadow-lg z-20">
-                                <div className="flex items-center gap-2">
-                                    <AlertIcon className="w-4 h-4 shrink-0" />
-                                    <span>{searchState.error}</span>
+            {!lockdownMode && (
+                <div className="absolute top-0 left-0 w-full z-30 p-4 pt-16 md:pt-6 flex flex-col gap-3 transition-all duration-300 pointer-events-none">
+                    <div className="flex items-start gap-3 w-full max-w-5xl mx-auto md:mx-0 pointer-events-auto">
+                        <div id="search-bar" className="flex-1 max-w-[85%] md:max-w-[28rem] shadow-2xl relative mx-auto md:mx-0">
+                            <form onSubmit={handleSubmit} className="relative group">
+                                <div className="absolute inset-0 bg-black/60 backdrop-blur-xl rounded-full border border-white/20 transition-all group-focus-within:bg-black/80 group-focus-within:border-blue-500/50 shadow-lg group-focus-within:shadow-blue-500/20"></div>
+                                <div className="relative flex items-center px-4 py-3 gap-3">
+                                    <Search size={18} className="text-gray-400 group-focus-within:text-blue-400 shrink-0 transition-colors" />
+                                    <input
+                                        ref={inputRef}
+                                        type="text"
+                                        value={inputValue}
+                                        onChange={(e) => setInputValue(e.target.value)}
+                                        placeholder="Search planet..."
+                                        className="flex-1 bg-transparent border-none outline-none text-sm md:text-base text-white placeholder-gray-500 w-full font-medium"
+                                        style={{ fontSize: '16px' }}
+                                    />
+                                    {searchState.isLoading ? (
+                                        <Loader2 size={18} className="animate-spin text-blue-400 shrink-0" />
+                                    ) : (
+                                        inputValue && (
+                                            <button
+                                                type="button"
+                                                onClick={handleClearSearch}
+                                                className="text-gray-500 hover:text-white p-1"
+                                            >
+                                                <X size={16} />
+                                            </button>
+                                        )
+                                    )}
                                 </div>
-                            </div>
-                        )}
+                            </form>
 
-                        {!selectedMarker && markers.length === 0 && !searchState.error && (
-                            <div className="absolute top-full left-0 mt-3 w-full overflow-x-auto scrollbar-hide pointer-events-auto">
-                                <div className="flex gap-2 pb-2">
-                                    {suggestionsList.map(s => (
-                                        <button
-                                            key={s}
-                                            onClick={() => { setInputValue(s); onSearch(s); }}
-                                            className="flex-shrink-0 px-4 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-xs font-medium text-gray-300 hover:bg-white/20 hover:text-white hover:border-white/40 transition-all whitespace-nowrap"
-                                        >
-                                            {s}
-                                        </button>
-                                    ))}
+                            {/* Error Toast */}
+                            {searchState.error && (
+                                <div className="absolute top-full left-0 mt-2 w-full bg-red-500/90 backdrop-blur-md border border-red-400/50 text-white text-xs px-4 py-3 rounded-xl animate-in fade-in slide-in-from-top-2 shadow-lg z-20">
+                                    <div className="flex items-center gap-2">
+                                        <AlertIcon className="w-4 h-4 shrink-0" />
+                                        <span>{searchState.error}</span>
+                                    </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
+
+                            {!selectedMarker && markers.length === 0 && !searchState.error && (
+                                <div className="absolute top-full left-0 mt-3 w-full overflow-x-auto scrollbar-hide pointer-events-auto">
+                                    <div className="flex gap-2 pb-2">
+                                        {suggestionsList.map(s => (
+                                            <button
+                                                key={s}
+                                                onClick={() => { setInputValue(s); onSearch(s); }}
+                                                className="flex-shrink-0 px-4 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-xs font-medium text-gray-300 hover:bg-white/20 hover:text-white hover:border-white/40 transition-all whitespace-nowrap"
+                                            >
+                                                {s}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
-            </div>
+            )}
 
             {/* --- 2. GPS & ZOOM FAB (Bottom Right Horizontal - Consolidated) --- */}
-            {!showCrowdSelection && (
+            {!showCrowdSelection && !lockdownMode && (
                 <div className={`absolute right-24 z-20 pointer-events-auto flex flex-col gap-3 transition-all duration-300 bottom-8`}>
 
                     {/* Unified Navigation Bar */}

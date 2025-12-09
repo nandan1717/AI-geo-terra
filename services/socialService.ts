@@ -74,7 +74,7 @@ export const socialService = {
         if (error) throw error;
     },
 
-    async fetchPosts() {
+    async fetchPosts(userId?: string) {
         const { data: { user } } = await supabase.auth.getUser();
 
         let query = supabase
@@ -86,6 +86,10 @@ export const socialService = {
                 comments:app_comments(count)
             `)
             .order('created_at', { ascending: false });
+
+        if (userId) {
+            query = query.eq('user_id', userId);
+        }
 
         // If logged in, show own hidden posts + all visible posts
         // If not logged in, show only visible posts

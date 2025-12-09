@@ -5,10 +5,11 @@ import UIOverlay from './components/UIOverlay';
 import Auth from './components/Auth';
 import TutorialOverlay, { TutorialStep } from './components/TutorialOverlay';
 import ErrorBoundary from './components/ErrorBoundary';
+import SupportChat from './components/SupportChat';
 
 import { supabase } from './services/supabaseClient';
 import { Session } from '@supabase/supabase-js';
-import { LocationMarker, SearchState, LocalPersona, ChatMessage, CameraControlRef, CrowdMember, Notification } from './types';
+import { LocationMarker, SearchState, LocalPersona, ChatMessage, CameraControlRef, CrowdMember, Notification as AppNotification } from './types';
 import { fetchLocationsFromQuery, fetchCrowd, connectWithCrowdMember, chatWithPersona, getPlaceFromCoordinates } from './services/geminiService';
 import { subscribeToNotifications, createNotification, getUnreadCount } from './services/notificationService';
 
@@ -48,43 +49,105 @@ const App: React.FC = () => {
   const [tutorialPhase, setTutorialPhase] = useState<'none' | 'initial' | 'post-search'>('none');
 
   // Notification State
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [showPermissionCard, setShowPermissionCard] = useState(false);
+
+  // Notification Handlers (Optimistic Updates)
+  const handleMarkAsRead = useCallback(async (id: string) => {
+    // Optimistic update
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+    setUnreadCount(prev => Math.max(0, prev - 1));
+
+    // API call
+    if (session?.user) {
+      import('./services/notificationService').then(({ markAsRead }) => {
+        markAsRead(session.user.id, id);
+      });
+    }
+  }, [session]);
+
+  const handleMarkAllAsRead = useCallback(async () => {
+    // Optimistic update
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    setUnreadCount(0);
+
+    // API call
+    if (session?.user) {
+      import('./services/notificationService').then(({ markAllAsRead }) => {
+        markAllAsRead(session.user.id);
+      });
+    }
+  }, [session]);
+
+  const handleDeleteNotification = useCallback(async (id: string) => {
+    // Optimistic update
+    setNotifications(prev => prev.filter(n => n.id !== id));
+    // Recalculate unread count if needed, though usually we delete read ones
+    // But if deleting unread, we should decrease count
+    setNotifications(prev => {
+      const target = prev.find(n => n.id === id);
+      if (target && !target.read) {
+        setUnreadCount(c => Math.max(0, c - 1));
+      }
+      return prev.filter(n => n.id !== id);
+    });
+
+    // API call
+    if (session?.user) {
+      import('./services/notificationService').then(({ deleteNotification }) => {
+        deleteNotification(session.user.id, id);
+      });
+    }
+  }, [session]);
+
+  const handlePermissionGranted = useCallback(async (token: string) => {
+    console.log("FCM Token granted:", token);
+    setShowPermissionCard(false);
+    // Here you would typically save the token to the user's profile in DB
+    // await saveFcmToken(session.user.id, token);
+    localStorage.setItem('mortals_fcm_granted', 'true');
+  }, [session]);
+
+  const handlePermissionDismiss = useCallback(() => {
+    setShowPermissionCard(false);
+    localStorage.setItem('mortals_fcm_dismissed', 'true');
+  }, []);
 
   const initialTutorialSteps: TutorialStep[] = [
     {
-      title: "Welcome to Mortals",
-      content: "This is your planetary interface system. Explore the world, discover local populations, and interact with them in real-time.",
+      title: "Your World, Your Game",
+      content: "Create your profile and start your journey. The real world is your playground.",
       position: "center"
     },
     {
       targetId: "search-bar",
-      title: "Navigation Control",
-      content: "Search for any city, country, or region to instantly deploy your view to that sector.",
+      title: "Explore & Discover",
+      content: "Navigate the globe. Search for cities, landmarks, or hidden gems to begin your adventure.",
       position: "bottom"
     },
     {
-      targetId: "weather-display",
-      title: "Environmental Data",
-      content: "Real-time local time and weather conditions for your current view are displayed here.",
-      position: "left"
-    },
-    {
-      targetId: "zoom-controls",
-      title: "Optical Zoom",
-      content: "Adjust your altitude for a broader view or closer inspection of the terrain.",
-      position: "left"
-    },
-    {
-      targetId: "locate-btn",
-      title: "GPS Triangulation",
-      content: "Instantly lock onto your physical coordinates.",
+      targetId: "profile-btn",
+      title: "Capture Reality",
+      content: "Take photos, tag locations, and post your real-world explorations to your profile.",
       position: "left"
     },
     {
       targetId: "profile-btn",
-      title: "Profile & Settings",
-      content: "Access your account, restart this tutorial, or sign out from here.",
+      title: "Level Up",
+      content: "Earn XP and badges for every new place you visit. Watch your Exploration Bar grow!",
+      position: "left"
+    },
+    {
+      targetId: "add-friends-btn",
+      title: "Connect & Hangout",
+      content: "Find others hanging out at your spots. Connect with people who share your favorite locations.",
+      position: "left"
+    },
+    {
+      targetId: "notifications-btn",
+      title: "Live World Events",
+      content: "Get real-time updates on events and places around you. Unlock unique badges for group hangouts!",
       position: "left"
     }
   ];
@@ -104,6 +167,8 @@ const App: React.FC = () => {
     }
   ];
 
+  const notificationInitRef = useRef(false);
+
   useEffect(() => {
     setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
 
@@ -119,42 +184,45 @@ const App: React.FC = () => {
           setUnreadCount(getUnreadCount(notifs));
         });
 
-        // Fetch user profile to get real name
-        supabase
-          .from('app_profiles_v2')
-          .select('full_name, username')
-          .eq('id', session.user.id)
-          .single()
-          .then(({ data: profile }) => {
-            const rawName = profile?.full_name || profile?.username || session.user.email?.split('@')[0] || 'Commander';
-            // Extract first name (capitalize first letter)
-            const firstName = rawName.split(' ')[0].charAt(0).toUpperCase() + rawName.split(' ')[0].slice(1).toLowerCase();
+        // Initialize FCM and Welcome Logic ONLY ONCE
+        if (!notificationInitRef.current) {
+          notificationInitRef.current = true;
 
-            // Create welcome notification on first login
-            const hasSeenWelcome = localStorage.getItem('mortals_welcome_notification');
-            if (!hasSeenWelcome) {
-              createNotification(session.user.id, 'WELCOME', {
-                userName: firstName
-              }).then(() => {
+          // Check for permission card
+          const hasGranted = localStorage.getItem('mortals_fcm_granted');
+          const hasDismissed = localStorage.getItem('mortals_fcm_dismissed');
+          if (!hasGranted && !hasDismissed && 'Notification' in window && Notification.permission === 'default') {
+            setTimeout(() => setShowPermissionCard(true), 3000);
+          }
+
+          // Initialize FCM Listener
+          import('./services/firebase').then(({ onMessageListener }) => {
+            onMessageListener().then((payload: any) => {
+              console.log('Foreground FCM Message:', payload);
+            });
+          });
+
+          // Fetch user profile and handle Welcome/Login notification
+          supabase
+            .from('app_profiles_v2')
+            .select('full_name, username')
+            .eq('id', session.user.id)
+            .single()
+            .then(({ data: profile }) => {
+              const rawName = profile?.full_name || profile?.username || session.user.email?.split('@')[0] || 'Commander';
+              const firstName = rawName.split(' ')[0].charAt(0).toUpperCase() + rawName.split(' ')[0].slice(1).toLowerCase();
+
+              const hasSeenWelcome = localStorage.getItem('mortals_welcome_notification');
+              if (!hasSeenWelcome) {
+                // Set flag IMMEDIATELY to prevent race conditions
                 localStorage.setItem('mortals_welcome_notification', 'true');
 
-                // Schedule a "First Post" nudge after 30 seconds (simulated engagement)
-                setTimeout(() => {
-                  createNotification(session.user.id, 'APP_TIP', {
-                    feature: 'sharing your first moment',
-                    userName: firstName
-                  }, {
-                    appTip: { feature: 'create_post' }
-                  });
-                }, 30000);
-              });
-            } else {
-              // Create login notification for returning users
-              createNotification(session.user.id, 'LOGIN', {
-                userName: firstName
-              });
-            }
-          });
+                createNotification(session.user.id, 'WELCOME', {
+                  userName: firstName
+                });
+              }
+            });
+        }
 
         return () => unsubscribe();
       }
@@ -164,8 +232,9 @@ const App: React.FC = () => {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      // Note: We don't re-run the welcome logic here to avoid duplication on auth refresh
+      // The initial session check handles the main login flow.
 
-      // Subscribe to notifications on auth change
       if (session?.user) {
         const unsubscribe = subscribeToNotifications(session.user.id, (notifs) => {
           setNotifications(notifs);
@@ -177,6 +246,24 @@ const App: React.FC = () => {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Check for re-engagement opportunities on load
+  useEffect(() => {
+    if (session?.user) {
+      import('./services/supportService').then(({ supportService }) => {
+        // Request notification permission immediately
+        if ('Notification' in window && Notification.permission === 'default') {
+          Notification.requestPermission();
+        }
+
+        // Delay slightly to not compete with initial load
+        setTimeout(() => {
+          supportService.checkAndReengage(session.user.id);
+        }, 5000);
+      });
+    }
+  }, [session]);
+
 
 
   useEffect(() => {
@@ -542,6 +629,13 @@ const App: React.FC = () => {
 
           notifications={notifications}
           unreadNotifications={unreadCount}
+          onMarkAsRead={handleMarkAsRead}
+          onMarkAllAsRead={handleMarkAllAsRead}
+          onDeleteNotification={handleDeleteNotification}
+          showPermissionCard={showPermissionCard}
+          onPermissionGranted={handlePermissionGranted}
+          onPermissionDismiss={handlePermissionDismiss}
+          lockdownMode={true}
         />
 
         <TutorialOverlay
@@ -550,6 +644,9 @@ const App: React.FC = () => {
           onComplete={handleTutorialComplete}
           onSkip={handleTutorialComplete}
         />
+
+        {/* Universal Support Chat */}
+        {session?.user && <SupportChat userId={session.user.id} />}
 
       </div>
     </ErrorBoundary>

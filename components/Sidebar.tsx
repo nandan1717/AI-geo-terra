@@ -7,6 +7,10 @@ interface SidebarProps {
     onNotificationsClick?: () => void;
     onSettingsClick?: () => void;
     unreadNotifications?: number;
+    profileId?: string;
+    addFriendsId?: string;
+    notificationsId?: string;
+    settingsId?: string;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -14,13 +18,18 @@ const Sidebar: React.FC<SidebarProps> = ({
     onAddFriendsClick,
     onNotificationsClick,
     onSettingsClick,
-    unreadNotifications = 0
+    unreadNotifications = 0,
+    profileId,
+    addFriendsId,
+    notificationsId,
+    settingsId
 }) => {
     return (
-        <div className="absolute top-1/2 right-4 -translate-y-1/2 z-40 pointer-events-auto flex flex-col gap-2">
+        <div className="absolute top-1/2 right-4 -translate-y-1/2 z-[60] pointer-events-auto flex flex-col gap-2">
             <div className="bg-black/60 backdrop-blur-xl border border-white/20 rounded-full p-2 flex flex-col gap-4 shadow-2xl">
 
                 <button
+                    id={profileId}
                     onClick={onProfileClick}
                     className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-white transition-all active:scale-95 group relative"
                     title="Profile"
@@ -32,6 +41,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </button>
 
                 <button
+                    id={addFriendsId}
                     onClick={onAddFriendsClick}
                     className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-white transition-all active:scale-95 group relative"
                     title="Add Friends"
@@ -43,6 +53,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </button>
 
                 <button
+                    id={notificationsId}
                     onClick={onNotificationsClick}
                     className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-white transition-all active:scale-95 group relative"
                     title="Notifications"
@@ -63,6 +74,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <div className="h-[1px] bg-white/10 w-full mx-auto" />
 
                 <button
+                    id={settingsId}
                     onClick={onSettingsClick}
                     className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-white transition-all active:scale-95 group relative"
                     title="Settings"

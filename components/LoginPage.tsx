@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import GlobeScene from './GlobeScene';
-import { Shield, Globe, ChevronRight, Loader2, Lock, AlertCircle } from 'lucide-react';
-import { signInWithGoogle, isMockMode } from '../services/firebaseConfig';
-import { User } from 'firebase/auth';
+import { Shield, Globe, ChevronRight, Loader2, Lock } from 'lucide-react';
+import { supabase } from '../services/supabaseClient';
+import { User } from '@supabase/supabase-js';
 
 interface LoginPageProps {
     onLoginSuccess: (user: User) => void;
@@ -11,22 +11,20 @@ interface LoginPageProps {
 const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [isDemo, setIsDemo] = useState(false);
-
-    useEffect(() => {
-        setIsDemo(isMockMode());
-    }, []);
 
     const handleLogin = async () => {
         setIsLoading(true);
         setError(null);
         try {
-            const user = await signInWithGoogle();
-            if (user) {
-                onLoginSuccess(user);
-            }
+            const { error } = await supabase.auth.signInWithOAuth({
+                provider: 'google',
+                options: {
+                    redirectTo: window.location.origin
+                }
+            });
+            if (error) throw error;
         } catch (err: any) {
-            setError("Authentication sequence failed. Verify network uplink.");
+            setError(err.message || "Authentication sequence failed. Verify network uplink.");
         } finally {
             setIsLoading(false);
         }
@@ -74,19 +72,10 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                                     <Shield size={12} />
                                     <span>SYSTEM SECURE</span>
                                 </div>
-                                {isDemo && (
-                                    <div className="flex items-center gap-1 text-yellow-500">
-                                        <AlertCircle size={12} />
-                                        <span>SIMULATION MODE</span>
-                                    </div>
-                                )}
+
                             </div>
                             <p>&gt; Initializing connection protocol...</p>
-                            {isDemo ? (
-                                <p className="text-blue-300">&gt; Bypass active: Using simulation credentials.</p>
-                            ) : (
-                                <p>&gt; Waiting for authorized personnel...</p>
-                            )}
+                            <p>&gt; Waiting for authorized personnel...</p>
                         </div>
 
                         <button
@@ -98,7 +87,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                                 <Loader2 className="animate-spin" />
                             ) : (
                                 <>
-                                    <span className="z-10">{isDemo ? "Enter Simulation" : "Authenticate with Google"}</span>
+                                    <span className="z-10">Authenticate with Google</span>
                                     <ChevronRight className="group-hover:translate-x-1 transition-transform z-10" />
                                 </>
                             )}

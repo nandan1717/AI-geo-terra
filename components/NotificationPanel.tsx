@@ -1,20 +1,25 @@
 import React, { useEffect, useState } from 'react';
 import { X, Bell, Check, Trash2, UserPlus, LogIn, LogOut, Lightbulb, AlertCircle, Sparkles } from 'lucide-react';
 import { Notification, NotificationType } from '../types';
-import { markAsRead, markAllAsRead, deleteNotification } from '../services/notificationService';
 
 interface NotificationPanelProps {
     isOpen: boolean;
     onClose: () => void;
     notifications: Notification[];
     userId: string;
+    onMarkAsRead: (id: string) => void;
+    onMarkAllAsRead: () => void;
+    onDelete: (id: string) => void;
 }
 
 const NotificationPanel: React.FC<NotificationPanelProps> = ({
     isOpen,
     onClose,
     notifications,
-    userId
+    userId,
+    onMarkAsRead,
+    onMarkAllAsRead,
+    onDelete
 }) => {
     const [isAnimating, setIsAnimating] = useState(false);
 
@@ -29,19 +34,15 @@ const NotificationPanel: React.FC<NotificationPanelProps> = ({
         setTimeout(onClose, 300);
     };
 
-    const handleNotificationClick = async (notification: Notification) => {
+    const handleNotificationClick = (notification: Notification) => {
         if (!notification.read) {
-            await markAsRead(userId, notification.id);
+            onMarkAsRead(notification.id);
         }
     };
 
-    const handleMarkAllAsRead = async () => {
-        await markAllAsRead(userId);
-    };
-
-    const handleDelete = async (e: React.MouseEvent, notificationId: string) => {
+    const handleDelete = (e: React.MouseEvent, notificationId: string) => {
         e.stopPropagation();
-        await deleteNotification(userId, notificationId);
+        onDelete(notificationId);
     };
 
     const getNotificationIcon = (type: NotificationType) => {
@@ -124,7 +125,7 @@ const NotificationPanel: React.FC<NotificationPanelProps> = ({
                         <button
                             onClick={() => {
                                 console.log('Mark all read clicked');
-                                handleMarkAllAsRead();
+                                onMarkAllAsRead();
                             }}
                             className="text-xs font-medium text-blue-400 hover:text-blue-300 flex items-center gap-2 transition-colors uppercase tracking-wider cursor-pointer relative z-30"
                         >

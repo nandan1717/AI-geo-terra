@@ -11,6 +11,7 @@ interface ProfileModalProps {
     isOpen: boolean;
     onClose: () => void;
     userEmail?: string;
+    lockdownMode?: boolean;
 }
 
 interface UserProfile {
@@ -569,7 +570,7 @@ const AILocalsList: React.FC<{ locals: any[], onClose: () => void }> = ({ locals
     </div>
 );
 
-const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) => {
+const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, lockdownMode = false }) => {
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [loading, setLoading] = useState(true);
     const [isEditing, setIsEditing] = useState(false);
@@ -584,7 +585,44 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) => {
         try {
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
-                const { data } = await supabase.from('app_profiles_v2').select('*').eq('id', user.id).single();
+                let { data, error } = await supabase.from('app_profiles_v2').select('*').eq('id', user.id).single();
+
+                // Handle missing profile (new user)
+                if (error && (error.code === 'PGRST116' || (error as any).status === 406)) {
+                    console.log("Profile not found, creating default...");
+                    const rawName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'Explorer';
+
+                    const newProfile = {
+                        id: user.id,
+                        username: rawName.replace(/\s+/g, '').toLowerCase() + Math.floor(Math.random() * 1000),
+                        full_name: rawName,
+                        bio: 'Ready to explore the world.',
+                        occupation: 'Explorer',
+                        location: 'Unknown Sector',
+                        avatar_url: user.user_metadata?.avatar_url || '',
+                        explored_percent: 0,
+                        regions_count: 0,
+                        places_count: 0,
+                        ai_locals_count: 0
+                    };
+
+                    const { data: createdProfile, error: createError } = await supabase
+                        .from('app_profiles_v2')
+                        .insert(newProfile)
+                        .select()
+                        .single();
+
+                    if (createError) {
+                        console.error("Failed to create default profile:", createError);
+                        // Fallback to local state if DB insert fails (e.g. RLS issue)
+                        data = newProfile;
+                    } else {
+                        data = createdProfile;
+                    }
+                } else if (error) {
+                    throw error;
+                }
+
                 setProfile(data);
 
                 // Fetch AI Locals
@@ -600,8 +638,11 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) => {
 
     const fetchPosts = async () => {
         try {
-            const data = await socialService.fetchPosts();
-            setPosts(data);
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                const data = await socialService.fetchPosts(user.id);
+                setPosts(data);
+            }
         } catch (error) {
             console.error("Error fetching posts:", error);
         }
@@ -623,9 +664,11 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) => {
                 {/* Header Bar */}
                 <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between bg-white/5 shrink-0">
                     <h1 className="text-lg font-bold text-white">Profile</h1>
-                    <button onClick={onClose} className="p-1 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors">
-                        <X size={20} />
-                    </button>
+                    {!lockdownMode && (
+                        <button onClick={onClose} className="p-1 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors">
+                            <X size={20} />
+                        </button>
+                    )}
                 </div>
 
                 {/* Content */}

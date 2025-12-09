@@ -1,15 +1,32 @@
-import React, { useState, Suspense } from 'react';
+import React, { useState, Suspense, useEffect } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Loader2, Mail, Lock, Chrome, Globe, Shield, AlertCircle, ChevronRight } from 'lucide-react';
+import { Loader2, Mail, Lock, Chrome, Globe, ChevronRight, ArrowRight } from 'lucide-react';
+import IntroCarousel from './IntroCarousel';
+
 // Reuse the GlobeScene for consistency
 const GlobeScene = React.lazy(() => import('./GlobeScene'));
+
+type AuthView = 'signin' | 'signup' | 'forgot_password';
 
 export default function Auth() {
     const [loading, setLoading] = useState(false);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [isSignUp, setIsSignUp] = useState(false);
+    const [view, setView] = useState<AuthView>('signin');
     const [message, setMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
+    const [showIntro, setShowIntro] = useState(true);
+
+    useEffect(() => {
+        const hasSeenIntro = localStorage.getItem('mortals_intro_seen');
+        if (hasSeenIntro) {
+            setShowIntro(false);
+        }
+    }, []);
+
+    const handleIntroComplete = () => {
+        localStorage.setItem('mortals_intro_seen', 'true');
+        setShowIntro(false);
+    };
 
     const handleAuth = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -17,7 +34,7 @@ export default function Auth() {
         setMessage(null);
 
         try {
-            if (isSignUp) {
+            if (view === 'signup') {
                 const { error } = await supabase.auth.signUp({
                     email,
                     password,
@@ -27,12 +44,18 @@ export default function Auth() {
                 });
                 if (error) throw error;
                 setMessage({ type: 'success', text: 'Check your email for the confirmation link!' });
-            } else {
+            } else if (view === 'signin') {
                 const { error } = await supabase.auth.signInWithPassword({
                     email,
                     password,
                 });
                 if (error) throw error;
+            } else if (view === 'forgot_password') {
+                const { error } = await supabase.auth.resetPasswordForEmail(email, {
+                    redirectTo: `${window.location.origin}/update-password`,
+                });
+                if (error) throw error;
+                setMessage({ type: 'success', text: 'Password reset link sent to your email.' });
             }
         } catch (error: any) {
             console.error('Auth Error:', error);
@@ -56,10 +79,14 @@ export default function Auth() {
         }
     };
 
+    if (showIntro) {
+        return <IntroCarousel onComplete={handleIntroComplete} />;
+    }
+
     return (
-        <div className="relative w-full h-screen bg-black text-white overflow-hidden font-mono">
+        <div className="relative w-full h-screen bg-black text-white overflow-hidden font-sans">
             {/* Background Globe */}
-            <div className="absolute inset-0 opacity-40 pointer-events-none scale-110">
+            <div className="absolute inset-0 opacity-30 pointer-events-none scale-110">
                 <Suspense fallback={<div className="w-full h-full bg-black" />}>
                     <GlobeScene
                         markers={[]}
@@ -70,129 +97,161 @@ export default function Auth() {
             </div>
 
             {/* Overlay Gradient */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/80 pointer-events-none"></div>
-            <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 mix-blend-overlay pointer-events-none"></div>
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-black/80 pointer-events-none"></div>
 
             {/* Auth Container */}
             <div className="absolute inset-0 flex items-center justify-center p-4 z-10">
-                <div className="w-full max-w-md bg-black/60 backdrop-blur-xl border border-white/10 p-8 rounded-2xl shadow-2xl animate-in zoom-in-95 duration-700">
+                <div className="w-full max-w-md bg-black/40 backdrop-blur-xl border border-white/10 p-8 rounded-3xl shadow-2xl animate-in fade-in zoom-in-95 duration-500">
 
-                    <div className="flex justify-center mb-6">
-                        <div className="p-4 bg-blue-500/10 rounded-full border border-blue-500/30 relative">
-                            <Globe size={48} className="text-blue-400 animate-pulse" />
-                            <div className="absolute inset-0 border border-blue-400/20 rounded-full animate-ping opacity-50"></div>
-                        </div>
-                    </div>
-
+                    {/* Header */}
                     <div className="text-center mb-8">
-                        <h1 className="text-4xl font-bold tracking-tighter mb-2 bg-clip-text text-transparent bg-gradient-to-r from-white to-blue-400">
-                            MORTALS
+                        <div className="inline-flex items-center justify-center p-3 bg-white/5 rounded-2xl mb-4 ring-1 ring-white/10">
+                            <Globe size={32} className="text-white" />
+                        </div>
+                        <h1 className="text-3xl font-bold tracking-tight mb-2 text-white">
+                            {view === 'signin' && 'Welcome Back'}
+                            {view === 'signup' && 'Create Account'}
+                            {view === 'forgot_password' && 'Reset Password'}
                         </h1>
-                        <p className="text-sm text-gray-400 uppercase tracking-[0.3em]">Planetary Interface System</p>
+                        <p className="text-gray-400 text-sm">
+                            {view === 'signin' && 'Enter your credentials to access the simulation.'}
+                            {view === 'signup' && 'Join the network and start your journey.'}
+                            {view === 'forgot_password' && 'Enter your email to receive reset instructions.'}
+                        </p>
                     </div>
 
-                    <div className="space-y-4">
-                        {/* System Status Badge */}
-                        <div className="bg-white/5 border border-white/5 p-4 rounded-lg text-xs text-gray-400 font-mono mb-6">
-                            <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2 text-green-400">
-                                    <Shield size={12} />
-                                    <span>SYSTEM SECURE</span>
-                                </div>
-                                <div className="flex items-center gap-1 text-blue-400">
-                                    <AlertCircle size={12} />
-                                    <span>AUTH REQUIRED</span>
-                                </div>
+                    {/* Form */}
+                    <form onSubmit={handleAuth} className="space-y-4">
+                        <div className="space-y-3">
+                            <div className="relative group">
+                                <Mail className="absolute left-4 top-3.5 h-5 w-5 text-gray-500 group-focus-within:text-white transition-colors" />
+                                <input
+                                    type="email"
+                                    placeholder="Email address"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    required
+                                    className="w-full pl-12 pr-4 py-3.5 bg-white/5 border border-white/10 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 outline-none transition-all text-white placeholder-gray-500 text-sm"
+                                />
                             </div>
-                            <p>&gt; Initializing connection protocol...</p>
-                            <p>&gt; Waiting for authorized personnel...</p>
-                        </div>
 
-                        <form onSubmit={handleAuth} className="space-y-4">
-                            <div className="space-y-2">
+                            {view !== 'forgot_password' && (
                                 <div className="relative group">
-                                    <Mail className="absolute left-3 top-3 h-5 w-5 text-gray-500 group-focus-within:text-blue-400 transition-colors" />
-                                    <input
-                                        type="email"
-                                        placeholder="Email address"
-                                        value={email}
-                                        onChange={(e) => setEmail(e.target.value)}
-                                        required
-                                        className="w-full pl-10 pr-4 py-3 bg-black/50 border border-white/10 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500/50 outline-none transition-all text-white placeholder-gray-600 font-mono text-sm"
-                                    />
-                                </div>
-                                <div className="relative group">
-                                    <Lock className="absolute left-3 top-3 h-5 w-5 text-gray-500 group-focus-within:text-blue-400 transition-colors" />
+                                    <Lock className="absolute left-4 top-3.5 h-5 w-5 text-gray-500 group-focus-within:text-white transition-colors" />
                                     <input
                                         type="password"
                                         placeholder="Password"
                                         value={password}
                                         onChange={(e) => setPassword(e.target.value)}
                                         required
-                                        className="w-full pl-10 pr-4 py-3 bg-black/50 border border-white/10 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500/50 outline-none transition-all text-white placeholder-gray-600 font-mono text-sm"
+                                        className="w-full pl-12 pr-4 py-3.5 bg-white/5 border border-white/10 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 outline-none transition-all text-white placeholder-gray-500 text-sm"
                                     />
                                 </div>
-                            </div>
-
-                            {message && (
-                                <div className={`p-3 rounded-lg text-xs font-mono ${message.type === 'error' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-green-500/10 text-green-400 border border-green-500/20'}`}>
-                                    &gt; {message.text}
-                                </div>
                             )}
-
-                            <button
-                                type="submit"
-                                disabled={loading}
-                                className="group relative w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm tracking-widest uppercase rounded-lg transition-all flex items-center justify-center gap-2 overflow-hidden shadow-lg shadow-blue-900/20"
-                            >
-                                {loading ? <Loader2 className="animate-spin" size={16} /> : (
-                                    <>
-                                        <span className="z-10">{isSignUp ? 'Initialize Account' : 'Authenticate'}</span>
-                                        <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform z-10" />
-                                    </>
-                                )}
-                                <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
-                            </button>
-                        </form>
-
-                        <div className="relative my-6">
-                            <div className="absolute inset-0 flex items-center">
-                                <div className="w-full border-t border-white/10"></div>
-                            </div>
-                            <div className="relative flex justify-center text-[10px] uppercase tracking-widest">
-                                <span className="px-2 bg-[#0a0a0a] text-gray-500">Or Access Via</span>
-                            </div>
                         </div>
+
+                        {view === 'signin' && (
+                            <div className="flex justify-end">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setView('forgot_password');
+                                        setMessage(null);
+                                    }}
+                                    className="text-xs text-gray-400 hover:text-white transition-colors"
+                                >
+                                    Forgot password?
+                                </button>
+                            </div>
+                        )}
+
+                        {message && (
+                            <div className={`p-3 rounded-lg text-xs ${message.type === 'error' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-green-500/10 text-green-400 border border-green-500/20'}`}>
+                                {message.text}
+                            </div>
+                        )}
 
                         <button
-                            onClick={handleGoogleLogin}
-                            className="w-full py-3 px-4 bg-white text-black font-bold text-sm tracking-wide uppercase rounded-lg hover:bg-gray-200 transition-all transform flex items-center justify-center gap-2"
+                            type="submit"
+                            disabled={loading}
+                            className="w-full py-3.5 bg-white text-black font-bold text-sm rounded-xl hover:bg-gray-100 transition-all flex items-center justify-center gap-2 active:scale-95"
                         >
-                            <Chrome className="h-4 w-4" />
-                            Google Access
+                            {loading ? <Loader2 className="animate-spin" size={18} /> : (
+                                <>
+                                    <span>
+                                        {view === 'signin' && 'Sign In'}
+                                        {view === 'signup' && 'Create Account'}
+                                        {view === 'forgot_password' && 'Send Reset Link'}
+                                    </span>
+                                    <ArrowRight size={18} />
+                                </>
+                            )}
                         </button>
+                    </form>
 
-                        <div className="text-center text-xs text-gray-500 mt-6 font-mono">
-                            {isSignUp ? 'Already have credentials?' : "Need clearance?"}{' '}
+                    {view !== 'forgot_password' && (
+                        <>
+                            <div className="relative my-6">
+                                <div className="absolute inset-0 flex items-center">
+                                    <div className="w-full border-t border-white/10"></div>
+                                </div>
+                                <div className="relative flex justify-center text-xs uppercase tracking-wider">
+                                    <span className="px-2 bg-black text-gray-500">Or continue with</span>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={handleGoogleLogin}
+                                className="w-full py-3.5 bg-white/5 border border-white/10 text-white font-medium text-sm rounded-xl hover:bg-white/10 transition-all flex items-center justify-center gap-2"
+                            >
+                                <Chrome className="h-5 w-5" />
+                                Google
+                            </button>
+                        </>
+                    )}
+
+                    <div className="text-center text-sm text-gray-500 mt-8">
+                        {view === 'signin' && (
+                            <>
+                                New here?{' '}
+                                <button
+                                    onClick={() => {
+                                        setView('signup');
+                                        setMessage(null);
+                                    }}
+                                    className="text-white hover:underline transition-colors font-medium"
+                                >
+                                    Create an account
+                                </button>
+                            </>
+                        )}
+                        {view === 'signup' && (
+                            <>
+                                Already have an account?{' '}
+                                <button
+                                    onClick={() => {
+                                        setView('signin');
+                                        setMessage(null);
+                                    }}
+                                    className="text-white hover:underline transition-colors font-medium"
+                                >
+                                    Sign in
+                                </button>
+                            </>
+                        )}
+                        {view === 'forgot_password' && (
                             <button
                                 onClick={() => {
-                                    setIsSignUp(!isSignUp);
+                                    setView('signin');
                                     setMessage(null);
                                 }}
-                                className="text-blue-400 hover:text-blue-300 underline underline-offset-4 transition-colors"
+                                className="text-white hover:underline transition-colors font-medium flex items-center justify-center gap-2 w-full"
                             >
-                                {isSignUp ? 'Sign In' : 'Request Access'}
+                                Back to Sign In
                             </button>
-                        </div>
+                        )}
                     </div>
                 </div>
-            </div>
-
-            <div className="absolute bottom-4 w-full text-center">
-                <p className="text-[10px] text-gray-600 uppercase tracking-widest flex items-center justify-center gap-2">
-                    <Lock size={10} />
-                    Restricted Access // Auth Required
-                </p>
             </div>
         </div>
     );
