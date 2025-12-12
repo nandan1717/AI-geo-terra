@@ -4,7 +4,7 @@ import { locationService, LocationResult } from '../services/locationService';
 
 interface LocationInputProps {
     value: string;
-    onLocationSelect: (location: { name: string, lat: number, lng: number }) => void;
+    onLocationSelect: (location: { name: string, lat: number, lng: number, country?: string, region?: string, continent?: string }) => void;
     placeholder?: string;
     className?: string;
 }
@@ -59,7 +59,10 @@ const LocationInput: React.FC<LocationInputProps> = ({ value, onLocationSelect, 
         onLocationSelect({
             name: place.place_name,
             lat: place.center[1], // Mapbox returns [lng, lat]
-            lng: place.center[0]
+            lng: place.center[0],
+            country: place.country,
+            region: place.region,
+            continent: place.continent
         });
     };
 

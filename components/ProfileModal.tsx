@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, MapPin, Camera, Heart, MessageCircle, Send, MoreHorizontal, Edit2, Image as ImageIcon, Loader2, Globe, ChevronLeft, Trash2, Eye, EyeOff } from 'lucide-react';
+import { X, MapPin, Camera, Heart, MessageCircle, Send, MoreHorizontal, Edit2, Image as ImageIcon, Loader2, Globe, ChevronLeft, Trash2, Eye, EyeOff, Sparkles } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 import { socialService, Post, Comment } from '../services/socialService';
 import { chatService } from '../services/chatService';
 import { getPlaceFromCoordinates } from '../services/geminiService';
+import { analyzeLocationRarity } from '../services/deepseekService';
+import { UserProfile } from '../types';
 import LocationInput from './LocationInput';
 
 // --- Types ---
@@ -14,123 +16,151 @@ interface ProfileModalProps {
     lockdownMode?: boolean;
 }
 
-interface UserProfile {
-    id: string;
-    username: string;
-    full_name: string;
-    bio: string;
-    occupation: string;
-    location: string;
-    avatar_url: string;
-    explored_percent: number;
-    regions_count: number;
-    places_count: number;
-    ai_locals_count: number;
-}
+
 
 // --- Sub-Components ---
 
-const ProfileHeader: React.FC<{ profile: UserProfile, aiLocalsCount: number, onEdit: () => void, onShowLocals: () => void }> = ({ profile, aiLocalsCount, onEdit, onShowLocals }) => (
-    <div className="p-6 pb-0">
-        <div className="flex items-start justify-between">
-            <div className="flex items-center gap-4">
-                <div className="relative group">
-                    <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-white/20">
-                        <img src={profile.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${profile.username}`} alt={profile.full_name} className="w-full h-full object-cover" />
+
+// --- Sub-Components ---
+
+interface ProfileHeaderProps {
+    profile: UserProfile;
+    aiLocalsCount: number;
+    onEdit: () => void;
+}
+
+const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profile, aiLocalsCount, onEdit }) => {
+    // Gamification Calculations
+    const level = profile.level || 1;
+    const cwXp = profile.xp || 0;
+    const nextLevelXp = level * 1000;
+    const prevLevelXp = (level - 1) * 1000;
+    const progress = Math.min(100, Math.max(0, ((cwXp - prevLevelXp) / (nextLevelXp - prevLevelXp)) * 100));
+
+
+    // Sort Regions by XP
+    const regions = Object.entries(profile.region_stats || {})
+        .sort(([, a], [, b]) => (b as number) - (a as number))
+        .slice(0, 3); // Top 3
+
+    return (
+        <div className="p-6 pb-0">
+            <div className="flex items-start justify-between">
+                <div className="flex items-center gap-4">
+                    <div className="relative group">
+                        <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-white/20">
+                            <img src={profile.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${profile.username}`} alt={profile.full_name} className="w-full h-full object-cover" />
+                        </div>
+                        <div className="absolute -bottom-2 -right-2 bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#0a0a0a]">
+                            LVL {level}
+                        </div>
+                    </div>
+                    <div>
+                        <h2 className="text-2xl font-bold text-white">{profile.full_name || 'Explorer'}</h2>
+                        <p className="text-gray-400 text-sm">@{profile.username || profile.id.slice(0, 8)}</p>
+                        {profile.location && (
+                            <div className="flex items-center gap-1 text-xs text-blue-400 mt-1">
+                                <MapPin size={12} />
+                                <span>{profile.location}</span>
+                            </div>
+                        )}
                     </div>
                 </div>
-                <div>
-                    <h2 className="text-2xl font-bold text-white">{profile.full_name || 'Explorer'}</h2>
-                    <p className="text-gray-400 text-sm">@{profile.username || profile.id.slice(0, 8)}</p>
-                    {profile.location && (
-                        <div className="flex items-center gap-1 text-xs text-blue-400 mt-1">
-                            <MapPin size={12} />
-                            <span>{profile.location}</span>
-                        </div>
-                    )}
+                <button onClick={onEdit} className="px-3 py-1.5 rounded-lg border border-white/20 text-xs font-medium text-white hover:bg-white/10 transition-colors">
+                    Edit
+                </button>
+            </div>
+
+            <div className="mt-4">
+                <p className="text-sm text-gray-300">{profile.bio || "No bio yet."}</p>
+                <div className="mt-3">
+                    <div className="flex justify-between text-[10px] uppercase text-gray-500 font-bold mb-1">
+                        <span>Explorer Progress</span>
+                        <span>{cwXp} / {nextLevelXp} XP</span>
+                    </div>
+                    <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                        <div className="h-full bg-gradient-to-r from-blue-500 to-purple-500" style={{ width: `${progress}%` }} />
+                    </div>
                 </div>
             </div>
-            <button onClick={onEdit} className="px-3 py-1.5 rounded-lg border border-white/20 text-xs font-medium text-white hover:bg-white/10 transition-colors">
-                Edit
-            </button>
-        </div>
 
-        <div className="mt-4">
-            <p className="text-sm text-gray-300">{profile.bio || "No bio yet."}</p>
-            <p className="text-xs text-gray-500 mt-1 uppercase tracking-wider">{profile.occupation || "Explorer"}</p>
-        </div>
+            <div className="grid grid-cols-3 gap-2 mt-6 py-4 border-t border-b border-white/10">
+                <div className="col-span-1 border-r border-white/10 pr-2">
+                    <div className="text-[10px] uppercase text-gray-500 font-bold mb-2">Top Regions</div>
+                    <div className="space-y-2">
+                        {regions.length > 0 ? regions.map(([region, xp]) => (
+                            <div key={region}>
+                                <div className="flex justify-between text-xs text-white mb-0.5">
+                                    <span className="truncate max-w-[80px]">{region}</span>
+                                    <span className="text-gray-500">{Math.floor(xp as number)}</span>
+                                </div>
+                                <div className="h-1 bg-white/5 rounded-full">
+                                    <div className="h-full bg-emerald-500" style={{ width: `${Math.min(100, ((xp as number) / 1000) * 100)}%` }} />
+                                </div>
+                            </div>
+                        )) : <div className="text-xs text-gray-600 italic">No regions explored yet.</div>}
+                    </div>
+                </div>
 
-        <div className="grid grid-cols-4 gap-2 mt-6 py-4 border-t border-b border-white/10">
-            <div className="text-center p-2 bg-white/5 rounded-lg">
-                <div className="text-lg font-bold text-white">{profile.explored_percent || 0}%</div>
-                <div className="text-[10px] text-gray-500 uppercase">Explored</div>
+                <div className="col-span-2 grid grid-cols-3 gap-2">
+                    <div className="text-center p-2 bg-white/5 rounded-lg flex flex-col justify-center">
+                        <div className="text-lg font-bold text-white">{(profile.visited_countries || []).length}</div>
+                        <div className="text-[10px] text-gray-500 uppercase">Countries</div>
+                    </div>
+                    <div className="text-center p-2 bg-white/5 rounded-lg flex flex-col justify-center">
+                        <div className="text-lg font-bold text-white">{(profile.visited_continents || []).length}</div>
+                        <div className="text-[10px] text-gray-500 uppercase">Continents</div>
+                    </div>
+                    <div className="text-center p-2 bg-white/5 rounded-lg border border-white/10 opacity-50 cursor-not-allowed" title="View in Sidebar">
+                        <div className="text-lg font-bold text-white">{aiLocalsCount}</div>
+                        <div className="text-[10px] text-gray-500 uppercase">AI Locals</div>
+                    </div>
+                </div>
             </div>
-            <div className="text-center p-2 bg-white/5 rounded-lg">
-                <div className="text-lg font-bold text-white">{profile.regions_count || 0}</div>
-                <div className="text-[10px] text-gray-500 uppercase">Regions</div>
-            </div>
-            <div className="text-center p-2 bg-white/5 rounded-lg">
-                <div className="text-lg font-bold text-white">{profile.places_count || 0}</div>
-                <div className="text-[10px] text-gray-500 uppercase">Places</div>
-            </div>
-            <button onClick={onShowLocals} className="text-center p-2 bg-white/5 rounded-lg hover:bg-white/10 transition-colors cursor-pointer">
-                <div className="text-lg font-bold text-white">{aiLocalsCount}</div>
-                <div className="text-[10px] text-gray-500 uppercase">AI Locals</div>
-            </button>
         </div>
-    </div>
-);
+    );
+};
 
 const CreatePost: React.FC<{ onPostCreated: () => void, onClose: () => void }> = ({ onPostCreated, onClose }) => {
+
     const [caption, setCaption] = useState('');
     const [image, setImage] = useState<File | null>(null);
     const [preview, setPreview] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
-    const [location, setLocation] = useState<{ name: string, lat: number, lng: number } | null>(null);
-    const [gettingLocation, setGettingLocation] = useState(false);
+    const [location, setLocation] = useState<{ name: string, lat: number, lng: number, country?: string, region?: string, continent?: string } | null>(null);
+
+    // Rarity State
+    const [analyzingRarity, setAnalyzingRarity] = useState(false);
+    const [rarity, setRarity] = useState<{ score: number, isExtraordinary: boolean, reason?: string, continent?: string } | null>(null);
 
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
             setImage(file);
             setPreview(URL.createObjectURL(file));
+            setRarity(null); // Reset rarity when image changes
         }
     };
 
-    const handleLocationTag = () => {
-        if (navigator.geolocation) {
-            setGettingLocation(true);
-            navigator.geolocation.getCurrentPosition(async (pos) => {
-                try {
-                    const place = await getPlaceFromCoordinates(pos.coords.latitude, pos.coords.longitude);
-                    setLocation({
-                        name: place.name,
-                        lat: pos.coords.latitude,
-                        lng: pos.coords.longitude
-                    });
-                } catch (error) {
-                    console.error("Failed to get location name:", error);
-                    setLocation({
-                        name: "Unknown Location",
-                        lat: pos.coords.latitude,
-                        lng: pos.coords.longitude
-                    });
-                } finally {
-                    setGettingLocation(false);
-                }
-            }, (error) => {
-                console.error("Geolocation error:", error);
-                setGettingLocation(false);
-                alert("Could not get your location.");
-            });
-        }
-    };
+    // Auto-analyze when both image and location are present
+    useEffect(() => {
+        const analyze = async () => {
+            if (location && !rarity && !analyzingRarity) {
+                setAnalyzingRarity(true);
+                // Use DeepSeek for fact-based analysis of the location context
+                const result = await analyzeLocationRarity(location.name, location.lat, location.lng, location.country);
+                setRarity(result);
+                setAnalyzingRarity(false);
+            }
+        };
+        analyze();
+    }, [location]);
 
     const handleSubmit = async () => {
-        if (!image || !location) return; // Location mandatory as per request
+        if (!image || !location) return;
         setLoading(true);
         try {
-            await socialService.createPost(image, caption, location);
+            await socialService.createPost(image, caption, location, rarity ? { score: rarity.score, isExtraordinary: rarity.isExtraordinary, continent: rarity.continent } : undefined);
             onPostCreated();
             onClose();
         } catch (error) {
@@ -152,10 +182,29 @@ const CreatePost: React.FC<{ onPostCreated: () => void, onClose: () => void }> =
                         onChange={(e) => setCaption(e.target.value)}
                         className="w-full bg-transparent border-none outline-none text-white placeholder-gray-500 resize-none min-h-[60px]"
                     />
+
+                    {/* Rarity Badge */}
+                    {(analyzingRarity || rarity) && (
+                        <div className={`mt-2 mb-2 p-2 rounded-lg text-xs flex items-center gap-2 ${rarity?.isExtraordinary ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-white/5 text-gray-300'}`}>
+                            {analyzingRarity ? (
+                                <>
+                                    <Loader2 size={14} className="animate-spin text-blue-400" />
+                                    <span>Verifying location uniqueness...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Sparkles size={14} className={rarity?.isExtraordinary ? 'text-amber-400' : 'text-gray-400'} />
+                                    <span className="font-bold">Rarity Score: {rarity?.score}/10</span>
+                                    {rarity?.isExtraordinary && <span className="font-bold ml-1 uppercase tracking-wider text-[10px] bg-amber-500 text-black px-1.5 py-0.5 rounded-full">Legendary</span>}
+                                </>
+                            )}
+                        </div>
+                    )}
+
                     {preview && (
                         <div className="relative mt-2 rounded-xl overflow-hidden max-h-60">
                             <img src={preview} alt="Preview" className="w-full h-full object-cover" />
-                            <button onClick={() => { setImage(null); setPreview(null); }} className="absolute top-2 right-2 p-1 bg-black/50 rounded-full text-white hover:bg-black/70">
+                            <button onClick={() => { setImage(null); setPreview(null); setRarity(null); }} className="absolute top-2 right-2 p-1 bg-black/50 rounded-full text-white hover:bg-black/70">
                                 <X size={16} />
                             </button>
                         </div>
@@ -176,7 +225,7 @@ const CreatePost: React.FC<{ onPostCreated: () => void, onClose: () => void }> =
                         </div>
                         <button
                             onClick={handleSubmit}
-                            disabled={!image || !location || loading}
+                            disabled={!image || !location || loading || analyzingRarity}
                             className="px-4 py-1.5 bg-blue-600 text-white rounded-full text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-500 transition-colors flex-shrink-0"
                         >
                             {loading ? <Loader2 size={16} className="animate-spin" /> : 'Post'}
@@ -188,7 +237,7 @@ const CreatePost: React.FC<{ onPostCreated: () => void, onClose: () => void }> =
     );
 };
 
-const PostItem: React.FC<{ post: Post, onUpdate: () => void }> = ({ post, onUpdate }) => {
+const PostItem: React.FC<{ post: Post, onUpdate: () => void, onDelete?: () => void }> = ({ post, onUpdate, onDelete }) => {
     const [liked, setLiked] = useState(post.has_liked);
     const [likesCount, setLikesCount] = useState(post.likes_count);
     const [showComments, setShowComments] = useState(false);
@@ -289,6 +338,7 @@ const PostItem: React.FC<{ post: Post, onUpdate: () => void }> = ({ post, onUpda
         setIsDeleting(true);
         try {
             await socialService.deletePost(post.id);
+            if (onDelete) onDelete();
             onUpdate();
         } catch (error) {
             console.error("Failed to delete post:", error);
@@ -390,8 +440,21 @@ const PostItem: React.FC<{ post: Post, onUpdate: () => void }> = ({ post, onUpda
                     )}
 
                     {post.image_url && (
-                        <div className="rounded-xl overflow-hidden border border-white/10 mb-3">
+                        <div className="rounded-xl overflow-hidden border border-white/10 mb-3 relative group">
                             <img src={post.image_url} alt="Post content" className="w-full h-auto max-h-96 object-cover" />
+                            {/* Rarity Overlay Badge */}
+                            {post.rarity_score > 0 && (
+                                <div className={`absolute top-2 right-2 px-2 py-1 rounded-lg backdrop-blur-md border shadow-lg flex items-center gap-1.5 
+                                    ${post.is_extraordinary
+                                        ? 'bg-amber-500/80 border-amber-300 text-black'
+                                        : 'bg-black/60 border-white/20 text-white'}`}>
+                                    <Sparkles size={12} className={post.is_extraordinary ? 'fill-current' : 'text-blue-400'} />
+                                    <div className="flex flex-col leading-none">
+                                        <span className="text-[8px] uppercase tracking-wider font-bold opacity-80">Rarity</span>
+                                        <span className="text-xs font-bold">{post.rarity_score}/10</span>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -404,6 +467,11 @@ const PostItem: React.FC<{ post: Post, onUpdate: () => void }> = ({ post, onUpda
                             <MessageCircle size={18} />
                             <span>{post.comments_count + comments.length}</span>
                         </button>
+                        {post.xp_earned > 0 && (
+                            <div className="flex items-center gap-1.5 text-emerald-400 font-medium ml-auto">
+                                <span className="text-xs">+{post.xp_earned} XP</span>
+                            </div>
+                        )}
                     </div>
 
                     {showComments && (
@@ -540,35 +608,7 @@ const EditProfile: React.FC<{ profile: UserProfile, onSave: () => void, onCancel
     );
 };
 
-const AILocalsList: React.FC<{ locals: any[], onClose: () => void }> = ({ locals, onClose }) => (
-    <div className="p-4">
-        <div className="flex items-center gap-2 mb-4">
-            <button onClick={onClose} className="p-1 hover:bg-white/10 rounded-full text-gray-400 hover:text-white">
-                <ChevronLeft size={20} />
-            </button>
-            <h2 className="text-lg font-bold text-white">My AI Connections</h2>
-        </div>
-        <div className="space-y-2">
-            {locals.map((local, idx) => (
-                <div key={idx} className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/5">
-                    <img src={local.persona_image_url} alt={local.persona_name} className="w-10 h-10 rounded-full object-cover" />
-                    <div>
-                        <h3 className="font-bold text-white text-sm">{local.persona_name}</h3>
-                        <p className="text-xs text-blue-300">{local.persona_occupation}</p>
-                        <p className="text-[10px] text-gray-500 flex items-center gap-1 mt-0.5">
-                            <MapPin size={10} /> {local.location_name}
-                        </p>
-                    </div>
-                </div>
-            ))}
-            {locals.length === 0 && (
-                <div className="text-center text-gray-500 py-8">
-                    No AI locals met yet. Go explore!
-                </div>
-            )}
-        </div>
-    </div>
-);
+
 
 const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, lockdownMode = false }) => {
     const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -576,10 +616,10 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, lockdownMo
     const [isEditing, setIsEditing] = useState(false);
     const [posts, setPosts] = useState<Post[]>([]);
     const [isCreatingPost, setIsCreatingPost] = useState(false);
+    const [selectedPost, setSelectedPost] = useState<Post | null>(null);
 
-    // AI Locals State
-    const [aiLocals, setAiLocals] = useState<any[]>([]);
-    const [showAiLocals, setShowAiLocals] = useState(false);
+    // AI Locals State (Removed - moved to UIOverlay)
+
 
     const fetchProfile = async () => {
         try {
@@ -603,7 +643,13 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, lockdownMo
                         explored_percent: 0,
                         regions_count: 0,
                         places_count: 0,
-                        ai_locals_count: 0
+                        ai_locals_count: 0,
+                        xp: 0,
+                        level: 1,
+                        region_stats: {},
+                        visited_countries: [],
+                        visited_continents: [],
+                        visited_regions: []
                     };
 
                     const { data: createdProfile, error: createError } = await supabase
@@ -680,15 +726,13 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, lockdownMo
                     ) : profile ? (
                         isEditing ? (
                             <EditProfile profile={profile} onSave={() => { setIsEditing(false); fetchProfile(); }} onCancel={() => setIsEditing(false)} />
-                        ) : showAiLocals ? (
-                            <AILocalsList locals={aiLocals} onClose={() => setShowAiLocals(false)} />
                         ) : (
                             <>
                                 <ProfileHeader
                                     profile={profile}
-                                    aiLocalsCount={aiLocals.length}
+                                    aiLocalsCount={profile.ai_locals_count || 0}
                                     onEdit={() => setIsEditing(true)}
-                                    onShowLocals={() => setShowAiLocals(true)}
+                                // onShowLocals prop removed
                                 />
 
                                 {/* Feed Section */}
@@ -701,17 +745,37 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, lockdownMo
                                     </div>
 
                                     {isCreatingPost && (
-                                        <CreatePost onPostCreated={() => { setIsCreatingPost(false); fetchPosts(); }} onClose={() => setIsCreatingPost(false)} />
+                                        <CreatePost onPostCreated={() => { setIsCreatingPost(false); fetchPosts(); fetchProfile(); }} onClose={() => setIsCreatingPost(false)} />
                                     )}
 
-                                    <div className="pb-10">
+                                    <div className="pb-10 px-0.5">
                                         {posts.length === 0 ? (
                                             <div className="text-center py-10 text-gray-500">
                                                 <Globe className="mx-auto mb-2 opacity-50" size={32} />
                                                 <p>No posts yet. Be the first to share!</p>
                                             </div>
                                         ) : (
-                                            posts.map(post => <PostItem key={post.id} post={post} onUpdate={fetchPosts} />)
+                                            <div className="grid grid-cols-3 gap-0.5">
+                                                {posts.map(post => (
+                                                    <div key={post.id} onClick={() => setSelectedPost(post)} className="aspect-square relative group cursor-pointer overflow-hidden bg-white/5">
+                                                        {post.image_url ? (
+                                                            <img src={post.image_url} alt="Post" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                                                        ) : (
+                                                            <div className="w-full h-full flex items-center justify-center text-xs text-gray-500 p-2 text-center select-none">{post.caption.slice(0, 50)}...</div>
+                                                        )}
+
+                                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white gap-1 pointer-events-none">
+                                                            {post.rarity_score > 0 && <div className="text-xs font-bold flex items-center gap-1"><Sparkles size={12} className="text-amber-400" /> {post.rarity_score}</div>}
+                                                            <div className="flex gap-3 text-xs font-bold">
+                                                                <span className="flex items-center gap-1"><Heart size={12} className="fill-white" /> {post.likes_count}</span>
+                                                                <span className="flex items-center gap-1"><MessageCircle size={12} className="fill-white" /> {post.comments_count}</span>
+                                                            </div>
+                                                        </div>
+
+                                                        {post.is_extraordinary && <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500 shadow-lg ring-1 ring-black/50" />}
+                                                    </div>
+                                                ))}
+                                            </div>
                                         )}
                                     </div>
                                 </div>

@@ -8,6 +8,8 @@ import NotificationPanel from './NotificationPanel';
 import SettingsPanel from './SettingsPanel';
 import NotificationPermissionCard from './NotificationPermissionCard';
 const ProfileModal = React.lazy(() => import('./ProfileModal'));
+import AILocalsList from './AILocalsList';
+import { supabase } from '../supabaseClient';
 
 
 
@@ -221,6 +223,8 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
     const [isProfileOpen, setIsProfileOpen] = useState(false); // Profile Menu State
     const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false); // Notification Panel State
     const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false); // Settings Panel State
+    const [isAddFriendsOpen, setIsAddFriendsOpen] = useState(false); // Add Friends Panel State
+    const [aiLocals, setAiLocals] = useState<any[]>([]); // AI Locals State
 
     const inputRef = useRef<HTMLInputElement>(null);
     const chatEndRef = useRef<HTMLDivElement>(null);
@@ -344,7 +348,29 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                 notificationsId="notifications-btn"
                 settingsId="settings-btn"
                 onProfileClick={() => setIsProfileOpen(true)}
-                onAddFriendsClick={() => console.log("Add Friends clicked")}
+                onAddFriendsClick={() => {
+                    setIsAddFriendsOpen(true);
+                    // Fetch AI Locals
+                    if (userId) {
+                        import('../services/chatService').then(({ chatService }) => {
+                            chatService.getRecentSessions('').then(sessions => {
+                                // Filter unique personas from sessions
+                                const uniqueLocalsMap = new Map();
+                                sessions.forEach(s => {
+                                    if (!uniqueLocalsMap.has(s.persona_name)) {
+                                        uniqueLocalsMap.set(s.persona_name, {
+                                            persona_name: s.persona_name,
+                                            persona_occupation: s.persona_data.occupation,
+                                            persona_image_url: s.persona_image_url,
+                                            location_name: s.location_name
+                                        });
+                                    }
+                                });
+                                setAiLocals(Array.from(uniqueLocalsMap.values()));
+                            });
+                        });
+                    }
+                }}
                 onNotificationsClick={() => setIsNotificationPanelOpen(true)}
                 onSettingsClick={() => setIsSettingsPanelOpen(true)}
                 unreadNotifications={unreadNotifications}
@@ -391,6 +417,14 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                 onRestartTutorial={onRestartTutorial}
                 userEmail={userEmail}
             />
+
+            {/* ADD FRIENDS PANEL (AI LOCALS) */}
+            {isAddFriendsOpen && (
+                <div className="absolute top-0 right-0 w-full h-full md:w-[24rem] z-50 pointer-events-auto animate-in slide-in-from-right duration-300 bg-[#0a0a0a] border-l border-white/10 shadow-2xl">
+                    <AILocalsList locals={aiLocals} onClose={() => setIsAddFriendsOpen(false)} />
+                </div>
+            )}
+
 
             {/* --- SCANNING POPUP (Near Search Bar) --- */}
             {isLoadingCrowd && !isCustomSearching && !lockdownMode && (

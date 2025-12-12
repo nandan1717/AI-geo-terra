@@ -18,6 +18,10 @@ export interface Post {
     comments_count: number;
     has_liked: boolean;
     is_hidden?: boolean;
+    xp_earned?: number;
+    country?: string;
+    region?: string;
+    continent?: string;
 }
 
 export interface Comment {
@@ -50,8 +54,54 @@ export const socialService = {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) throw new Error("Not authenticated");
 
-        // Delete from storage first (optional but good practice)
-        // For now, just delete the record, cascade will handle likes/comments
+        // 1. Fetch Post for Rollback
+        const { data: post } = await supabase.from('app_posts').select('*').eq('id', postId).single();
+
+        if (post && post.xp_earned > 0) {
+            const { data: profile } = await supabase.from('app_profiles_v2').select('*').eq('id', user.id).single();
+            if (profile) {
+                const newXP = Math.max(0, (profile.xp || 0) - post.xp_earned);
+                const newLevel = Math.floor(newXP / 1000) + 1;
+
+                const regionStats = profile.region_stats || {};
+                if (post.region && regionStats[post.region]) {
+                    regionStats[post.region] = Math.max(0, regionStats[post.region] - post.xp_earned);
+                    if (regionStats[post.region] <= 0) delete regionStats[post.region];
+                }
+
+                let visitedRegions = profile.visited_regions || [];
+                if (post.region) {
+                    // Check if this was the last post in this region
+                    const { count } = await supabase.from('app_posts').select('*', { count: 'exact', head: true })
+                        .eq('user_id', user.id).eq('region', post.region).neq('id', postId);
+                    if (count === 0) visitedRegions = visitedRegions.filter((r: string) => r !== post.region);
+                }
+
+                let visitedCountries = profile.visited_countries || [];
+                if (post.country) {
+                    const { count } = await supabase.from('app_posts').select('*', { count: 'exact', head: true })
+                        .eq('user_id', user.id).eq('country', post.country).neq('id', postId);
+                    if (count === 0) visitedCountries = visitedCountries.filter((c: string) => c !== post.country);
+                }
+
+                let visitedContinents = profile.visited_continents || [];
+                if (post.continent) {
+                    const { count } = await supabase.from('app_posts').select('*', { count: 'exact', head: true })
+                        .eq('user_id', user.id).eq('continent', post.continent).neq('id', postId);
+                    if (count === 0) visitedContinents = visitedContinents.filter((c: string) => c !== post.continent);
+                }
+
+                await socialService.updateProfile({
+                    xp: newXP,
+                    level: newLevel,
+                    region_stats: regionStats,
+                    visited_regions: visitedRegions,
+                    visited_countries: visitedCountries,
+                    visited_continents: visitedContinents
+                } as any);
+            }
+        }
+
         const { error } = await supabase
             .from('app_posts')
             .delete()
@@ -122,7 +172,12 @@ export const socialService = {
             }));
     },
 
-    async createPost(file: File, caption: string, location: { name: string, lat: number, lng: number }) {
+    async createPost(
+        file: File,
+        caption: string,
+        location: { name: string, lat: number, lng: number, region?: string, country?: string, continent?: string },
+        rarity?: { score: number, isExtraordinary: boolean, continent?: string | null }
+    ) {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) throw new Error("Not authenticated");
 
@@ -139,17 +194,71 @@ export const socialService = {
             .from('social_media')
             .getPublicUrl(fileName);
 
-        // 2. Create Post Record
+        // 2. Calculate XP (Simplified: 1 XP per post/city)
+        let xpGained = 1;
+
+        // Fetch current profile
+        const { data: profile } = await supabase
+            .from('app_profiles_v2')
+            .select('*')
+            .eq('id', user.id)
+            .single();
+
+        if (profile) {
+            // Update Stats (Visited Lists) - No extra XP, just tracking
+            const visitedRegions = profile.visited_regions || [];
+            if (location.region && !visitedRegions.includes(location.region)) {
+                visitedRegions.push(location.region);
+            }
+
+            const visitedCountries = profile.visited_countries || [];
+            if (location.country && !visitedCountries.includes(location.country)) {
+                visitedCountries.push(location.country);
+            }
+
+            const visitedContinents = profile.visited_continents || [];
+            const continent = rarity?.continent || location.continent;
+            if (continent && !visitedContinents.includes(continent)) {
+                visitedContinents.push(continent);
+            }
+
+            // Update Profile Stats
+            const newXP = (profile.xp || 0) + xpGained;
+            const newLevel = Math.floor(newXP / 1000) + 1; // 1000 XP per level (Maybe 100? User said 1 XP only... sticking to existing level math for now or should I adjust level scaling? User didn't ask to change level curve, just XP gain. 1000 posts for level 2 is hard. But I will strictly follow "1 city = 1 xp" request for now.)
+
+            // Region Stats
+            const regionStats = profile.region_stats || {};
+            if (location.region) {
+                regionStats[location.region] = (regionStats[location.region] || 0) + xpGained;
+            }
+
+            await socialService.updateProfile({
+                xp: newXP,
+                level: newLevel,
+                region_stats: regionStats,
+                visited_regions: visitedRegions,
+                visited_countries: visitedCountries,
+                visited_continents: visitedContinents
+            } as any);
+        }
+
+        // 3. Create Post Record
         const { data, error } = await supabase
             .from('app_posts')
             .insert({
                 user_id: user.id,
                 image_url: publicUrl,
-                caption,
+                caption: caption, // Clean caption, no XP suffix
                 location_name: location.name,
                 location_lat: location.lat,
                 location_lng: location.lng,
-                is_hidden: false
+                is_hidden: false,
+                xp_earned: xpGained,
+                rarity_score: rarity?.score || 0,
+                is_extraordinary: rarity?.isExtraordinary || false,
+                country: location.country,
+                region: location.region,
+                continent: rarity?.continent || location.continent
             })
             .select()
             .single();
@@ -157,6 +266,11 @@ export const socialService = {
         if (error) throw error;
         return data;
     },
+
+    // Internal helper to avoid circular dependency if possible, or just use the existing one
+    // But wait, `updateProfile` above calls `supabase.from('app_profiles_v2').update...`
+    // I used `facebookService.updateProfile` in the code above, which is WRONG. It should be `socialService`.
+
 
     async toggleLike(postId: number, hasLiked: boolean) {
         const { data: { user } } = await supabase.auth.getUser();

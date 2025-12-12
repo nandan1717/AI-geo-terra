@@ -20,6 +20,12 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api\/deepseek/, ''),
         },
+        '/api': {
+          target: 'http://localhost:3000', // Assuming your function/backend runs here
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path.replace(/^\/api/, ''), // Corrected rewrite for /api
+        },
       },
     },
     plugins: [

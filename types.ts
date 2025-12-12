@@ -6,11 +6,11 @@ export interface LocationMarker {
   longitude: number;
   description: string;
   type?: 'Country' | 'State' | 'City' | 'Place' | 'Business' | 'Landmark';
-  timezone?: string; // e.g., "Europe/London" or "UTC+1"
+  timezone?: string;
   country?: string;
   region?: string;
   googleMapsUri?: string;
-  geojson?: any; // GeoJSON object for boundaries
+  geojson?: any;
 }
 
 export interface SearchState {
@@ -34,7 +34,7 @@ export interface CrowdMember {
 export interface LocalPersona extends CrowdMember {
   message: string;
   imageUrl: string;
-  suggestedQuestions: string[]; // Initial context-aware questions
+  suggestedQuestions: string[];
 }
 
 export interface UserProfile {
@@ -49,6 +49,20 @@ export interface UserProfile {
   avatar_source?: 'upload' | 'library';
   is_private: boolean;
   is_verified_human: boolean;
+
+  // Gamification
+  xp: number;
+  level: number;
+  region_stats: Record<string, number>; // "Canada": 500
+  visited_countries: string[];
+  visited_continents: string[];
+  visited_regions: string[];
+
+  // Stats (Derived or Stored)
+  explored_percent?: number;
+  regions_count?: number; // Count of visited_regions
+  places_count?: number;
+  ai_locals_count?: number;
 }
 
 export interface ChatMessage {
@@ -63,7 +77,6 @@ export interface ChatResponse {
   sources?: { title: string; uri: string }[];
 }
 
-// Camera types for controlling the globe view
 export interface CameraControlRef {
   flyTo: (lat: number, lng: number) => void;
   zoomIn: () => void;
@@ -71,7 +84,6 @@ export interface CameraControlRef {
   resetView: () => void;
 }
 
-// Notification types
 export type NotificationType =
   | 'FRIEND_REQUEST'
   | 'FRIEND_ACCEPTED'
@@ -108,4 +120,3 @@ export interface NotificationData {
     action?: string;
   };
 }
-

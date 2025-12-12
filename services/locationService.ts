@@ -5,7 +5,23 @@ export interface LocationResult {
     name: string;
     place_name: string;
     center: [number, number]; // [lng, lat]
+    country?: string;
+    region?: string;
+    continent?: string;
 }
+
+const getContinent = (countryCode: string | undefined): string | undefined => {
+    if (!countryCode) return undefined;
+    const c = countryCode.toUpperCase();
+    if (['US', 'CA', 'MX', 'GT', 'BZ', 'SV', 'HN', 'NI', 'CR', 'PA', 'JM', 'CU', 'BS', 'HT', 'DO'].includes(c)) return 'North America';
+    if (['BR', 'AR', 'CO', 'CL', 'PE', 'VE', 'EC', 'BO', 'PY', 'UY', 'GY', 'SR'].includes(c)) return 'South America';
+    if (['GB', 'FR', 'DE', 'IT', 'ES', 'PT', 'NL', 'BE', 'CH', 'AT', 'SE', 'NO', 'DK', 'FI', 'IE', 'PL', 'GR', 'UA', 'RU', 'CZ', 'HU', 'RO'].includes(c)) return 'Europe';
+    if (['CN', 'JP', 'IN', 'KR', 'ID', 'TH', 'VN', 'MY', 'PH', 'SG', 'SA', 'AE', 'IL', 'TR', 'PK', 'BD', 'LK'].includes(c)) return 'Asia';
+    if (['AU', 'NZ', 'FJ', 'PG'].includes(c)) return 'Oceania';
+    if (['EG', 'ZA', 'NG', 'KE', 'MA', 'GH', 'TZ', 'ET'].includes(c)) return 'Africa';
+    if (['AQ'].includes(c)) return 'Antarctica';
+    return undefined; // Let Gemini handle edge cases if null, or default to "Unknown"
+};
 
 export const locationService = {
     async searchPlaces(query: string): Promise<LocationResult[]> {
@@ -23,12 +39,23 @@ export const locationService = {
             if (!response.ok) throw new Error("Mapbox API error");
 
             const data = await response.json();
-            return data.features.map((feature: any) => ({
-                id: feature.id,
-                name: feature.text,
-                place_name: feature.place_name,
-                center: feature.center
-            }));
+            return data.features.map((feature: any) => {
+                const context = feature.context || [];
+                const country = context.find((c: any) => c.id.startsWith('country'))?.text;
+                const countryCode = context.find((c: any) => c.id.startsWith('country'))?.short_code;
+                const region = context.find((c: any) => c.id.startsWith('region'))?.text;
+                const continent = getContinent(countryCode);
+
+                return {
+                    id: feature.id,
+                    name: feature.text,
+                    place_name: feature.place_name,
+                    center: feature.center,
+                    country,
+                    region,
+                    continent
+                };
+            });
         } catch (error) {
             console.error("Error searching places:", error);
             return [];

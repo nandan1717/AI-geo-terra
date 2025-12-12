@@ -448,3 +448,62 @@ export const chatWithPersona = async (
     context
   );
 };
+
+// --- 5. GAMIFICATION (Rarity Analysis) ---
+export const analyzeLocationRarity = async (
+  image: File,
+  location: LocationMarker
+): Promise<{ score: number; isExtraordinary: boolean; continent: string | null; reason: string }> => {
+  try {
+    const fileToGenerativePart = async (file: File) => {
+      const base64EncodedDataPromise = new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result?.toString().split(',')[1]);
+        reader.readAsDataURL(file);
+      });
+      return {
+        inlineData: { data: await base64EncodedDataPromise, mimeType: file.type },
+      };
+    };
+
+    const imagePart = await fileToGenerativePart(image);
+    const prompt = `Analyze this image taken at ${location.name}, ${location.region}, ${location.country}.
+        Task: 
+        1. Identify the **Continent** this location belongs to (e.g., "North America", "Europe", "Asia").
+        2. Verification: Does the image match the location?
+        3. Rarity: How rare/unique is this view or activity? (1=Generic, 10=Legendary).
+        
+        Return JSON: 
+        { 
+            "score": number, 
+            "isExtraordinary": boolean (true if score > 8), 
+            "continent": "StringName",
+            "reason": "Short explanation" 
+        }`;
+
+    const result = await ai.models.generateContent({
+      model: "gemini-2.0-flash-exp",
+      contents: [
+        { role: "user", parts: [{ text: prompt }, imagePart as any] } // Cast to any to avoid type issues with inlineData
+      ],
+      config: { responseMimeType: "application/json" }
+    });
+
+    await APIUsageTracker.trackCall('rarity_analysis', 0.005, 'Gemini', apiKey);
+
+    const text = result.text || "{}";
+    const data = JSON.parse(text);
+
+    return {
+      score: data.score || 1,
+      isExtraordinary: data.isExtraordinary || false,
+      continent: data.continent || null,
+      reason: data.reason || "Analysis failed."
+    };
+
+  } catch (error) {
+    console.error("Rarity Analysis Failed:", error);
+    return { score: 1, isExtraordinary: false, continent: null, reason: "Could not verify rarity." };
+  }
+};
+
