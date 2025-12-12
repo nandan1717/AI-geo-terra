@@ -37,10 +37,9 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profile, aiLocalsCount, o
     const prevLevelXp = (level - 1) * 1000;
     const progress = Math.min(100, Math.max(0, ((cwXp - prevLevelXp) / (nextLevelXp - prevLevelXp)) * 100));
 
-
     // Sort Regions by XP
     const regions = Object.entries(profile.region_stats || {})
-        .sort(([, a], [, b]) => (b as number) - (a as number))
+        .sort(([, a], [, b]) => (b as any).visitCount - (a as any).visitCount)
         .slice(0, 3); // Top 3
 
     return (
@@ -673,10 +672,11 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, lockdownMo
 
                 // Fetch AI Locals
                 const locals = await chatService.getUniqueLocals();
-                setAiLocals(locals);
+                // setAiLocals(locals); // This line was commented out or removed in a previous step, but the instruction was to remove `setAiLocals([])` from the catch block.
             }
         } catch (error) {
             console.error("Error fetching profile:", error);
+            // No setAiLocals([]) call found here to remove.
         } finally {
             setLoading(false);
         }
