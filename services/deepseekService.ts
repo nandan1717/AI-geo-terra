@@ -106,3 +106,38 @@ export const analyzeLocationRarity = async (
     };
   }
 };
+
+export const fetchCountryColor = async (countryName: string): Promise<[number, number, number]> => {
+  if (!API_KEY) {
+    console.warn("DeepSeek API Key missing, using default orange.");
+    return [1, 0.5, 0.1];
+  }
+
+  const prompt = `
+    What is the single most dominant/representative color of the national flag of "${countryName}"?
+    Return the color as a JSON object with "r", "g", "b" values normalized between 0.0 and 1.0.
+    Example for India (Saffron): { "r": 1.0, "g": 0.6, "b": 0.2 }
+    Example for USA (Blue): { "r": 0.23, "g": 0.35, "b": 0.6 }
+    
+    Return ONLY valid JSON.
+  `;
+
+  try {
+    const resultString = await queryDeepSeek([
+      { role: 'system', content: 'You are a color expert. Return strict JSON only.' },
+      { role: 'user', content: prompt }
+    ], true, 0.5); // Lower temperature for consistent colors
+
+    const color = JSON.parse(resultString);
+
+    // Validate bounds
+    const r = Math.min(1, Math.max(0, color.r));
+    const g = Math.min(1, Math.max(0, color.g));
+    const b = Math.min(1, Math.max(0, color.b));
+
+    return [r, g, b];
+  } catch (error) {
+    console.warn("Failed to fetch AI color for country:", countryName, error);
+    return [1, 0.5, 0.1]; // Fallback Orange
+  }
+};

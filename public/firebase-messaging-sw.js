@@ -4,6 +4,7 @@ importScripts('https://www.gstatic.com/firebasejs/8.10.1/firebase-messaging.js')
 // Initialize the Firebase app in the service worker by passing in the
 // messagingSenderId.
 // Parse config from URL parameters
+// Parse config from URL parameters
 const params = new URL(location.href).searchParams;
 const config = {
     apiKey: params.get('apiKey'),
@@ -14,6 +15,10 @@ const config = {
     appId: params.get('appId'),
     measurementId: params.get('measurementId')
 };
+// Ensure we have a valid config before initializing
+if (!config.apiKey || !config.messagingSenderId) {
+    console.error('Missing Firebase config in Service Worker URL');
+}
 
 // Initialize the Firebase app in the service worker
 firebase.initializeApp(config);

@@ -13,7 +13,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const messaging = getMessaging(app);
 
-export const requestForToken = async () => {
+export const requestForToken = async (userId?: string) => {
     try {
         if ('serviceWorker' in navigator) {
             const firebaseConfigParams = new URLSearchParams({
@@ -35,18 +35,42 @@ export const requestForToken = async () => {
             });
 
             if (currentToken) {
-                console.log('current token for client: ', currentToken);
+                console.log('FCM Token generated:', currentToken);
+
+                // Save to Supabase if userId is provided
+                if (userId) {
+                    try {
+                        const { supabase } = await import('./supabaseClient');
+                        const { error } = await supabase
+                            .from('app_profiles_v2')
+                            .update({
+                                fcm_token: currentToken,
+                                last_seen: new Date().toISOString()
+                            })
+                            .eq('id', userId);
+
+                        if (error) console.error("Failed to save FCM token to DB:", error);
+                        else console.log("FCM Token saved to profile");
+                    } catch (dbError) {
+                        console.error("Error saving token to Supabase:", dbError);
+                    }
+                }
+
                 return currentToken;
             } else {
-                console.log('No registration token available. Request permission to generate one.');
+                console.warn('No registration token available. Request permission to generate one.');
                 return null;
             }
         } else {
-            console.log('Service workers are not supported in this browser.');
+            console.warn('Service workers are not supported in this browser.');
             return null;
         }
-    } catch (err) {
-        console.log('An error occurred while retrieving token. ', err);
+    } catch (err: any) {
+        console.error('An error occurred while retrieving token:', err);
+        // Handle Brave browser or blocking extensions gracefully
+        if (err.toString().includes('AbortError') || err.toString().includes('blocked')) {
+            console.warn("Notifications likely blocked by browser settings or extensions.");
+        }
         return null;
     }
 };

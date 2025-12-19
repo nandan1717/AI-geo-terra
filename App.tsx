@@ -20,7 +20,9 @@ const App: React.FC = () => {
 
   // App Data State
   const [markers, setMarkers] = useState<LocationMarker[]>([]);
+  const [userMarkers, setUserMarkers] = useState<LocationMarker[]>([]);
   const [selectedMarker, setSelectedMarker] = useState<LocationMarker | null>(null);
+  const [markerColor, setMarkerColor] = useState<[number, number, number]>([1, 0.5, 0.1]);
 
   // Crowd State
   const [crowd, setCrowd] = useState<LocalPersona[]>([]); // Changed type from Persona[] to LocalPersona[]
@@ -105,7 +107,10 @@ const App: React.FC = () => {
     console.log("FCM Token granted:", token);
     setShowPermissionCard(false);
     // Here you would typically save the token to the user's profile in DB
-    // await saveFcmToken(session.user.id, token);
+    // Save FCM Token to DB
+    import('./services/firebase').then(({ requestForToken }) => {
+      requestForToken(session?.user?.id); // Passing ID saves it to Supabase
+    });
     localStorage.setItem('mortals_fcm_granted', 'true');
   }, [session]);
 
@@ -224,6 +229,35 @@ const App: React.FC = () => {
             });
         }
 
+        // Fetch User Posts for "My World" View
+        import('./services/socialService').then(({ socialService }) => {
+          console.log("Fetching user posts for:", session.user.id);
+          socialService.fetchPosts(session.user.id).then(posts => {
+            console.log("Fetched user posts:", posts.length);
+            const userLocations: LocationMarker[] = posts.map(p => ({
+              id: `post-${p.id}`,
+              name: p.location_name || 'Tagged Location',
+              latitude: p.location_lat,
+              longitude: p.location_lng,
+              description: p.caption,
+              type: 'Post',
+              isUserPost: true,
+              postImageUrl: p.image_url,
+              postCaption: p.caption,
+              country: p.country
+            }));
+
+            if (userLocations.length > 0) {
+              console.log("Setting user markers:", userLocations);
+              setUserMarkers(userLocations);
+              setMarkers(userLocations);
+              setMarkerColor([0.2, 0.8, 1]); // Cyan for User Data
+            } else {
+              console.log("No user posts found for profile.");
+            }
+          }).catch(err => console.error("Error fetching user posts:", err));
+        });
+
         return () => unsubscribe();
       }
     });
@@ -259,6 +293,12 @@ const App: React.FC = () => {
         // Delay slightly to not compete with initial load
         setTimeout(() => {
           supportService.checkAndReengage(session.user.id);
+
+          // Trigger AI Engagement Check (New Nudge Logic)
+          import('./services/engagementService').then(({ engagementService }) => {
+            engagementService.checkAndEngage(session.user.id);
+          });
+
         }, 5000);
       });
     }
@@ -307,6 +347,25 @@ const App: React.FC = () => {
 
       if (locations.length > 0) {
         setMarkers(locations);
+
+        // Auto-select and Fly to first result
+        const firstMatch = locations[0];
+        // Don't auto-select to avoid opening "Old UI" panel immediately
+        // setSelectedMarker(firstMatch); 
+        if (globeRef.current) {
+          globeRef.current.flyTo(firstMatch.latitude, firstMatch.longitude);
+        }
+
+        // DeepSeek AI Color Analysis
+        if (firstMatch.country) {
+          import('./services/deepseekService').then(({ fetchCountryColor }) => {
+            fetchCountryColor(firstMatch.country!).then(color => {
+              setMarkerColor(color);
+            });
+          });
+        } else {
+          setMarkerColor([1, 0.5, 0.1]); // Reset to Orange
+        }
 
         // Trigger Post-Search Tutorial if not seen
         const hasSeenPostSearch = localStorage.getItem('mortals_tutorial_post_search_seen');
@@ -583,8 +642,10 @@ const App: React.FC = () => {
             <GlobeScene
               ref={globeRef}
               markers={markers}
+              selectedMarker={selectedMarker}
               onMarkerClick={handleMarkerClick}
               isPaused={!!selectedMarker}
+              markerColor={markerColor}
             />
           </Suspense>
         </div>
@@ -635,7 +696,6 @@ const App: React.FC = () => {
           showPermissionCard={showPermissionCard}
           onPermissionGranted={handlePermissionGranted}
           onPermissionDismiss={handlePermissionDismiss}
-          lockdownMode={true}
         />
 
         <TutorialOverlay

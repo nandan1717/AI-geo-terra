@@ -361,5 +361,18 @@ export const socialService = {
             .getPublicUrl(fileName);
 
         return publicUrl;
+    },
+
+    async searchUsers(query: string) {
+        if (!query || query.length < 2) return [];
+
+        const { data, error } = await supabase
+            .from('app_profiles_v2')
+            .select('id, username, full_name, avatar_url, occupation, location')
+            .or(`username.ilike.%${query}%,full_name.ilike.%${query}%`)
+            .limit(20);
+
+        if (error) throw error;
+        return data || [];
     }
 };

@@ -7,8 +7,13 @@ import { getPlaceFromCoordinates } from '../services/geminiService';
 import { analyzeLocationRarity } from '../services/deepseekService';
 import { UserProfile } from '../types';
 import LocationInput from './LocationInput';
+import { PostDetailModal } from './PostDetailModal';
 
-// --- Types ---
+
+
+
+
+
 interface ProfileModalProps {
     isOpen: boolean;
     onClose: () => void;
@@ -201,9 +206,9 @@ const CreatePost: React.FC<{ onPostCreated: () => void, onClose: () => void }> =
                     )}
 
                     {preview && (
-                        <div className="relative mt-2 rounded-xl overflow-hidden max-h-60">
-                            <img src={preview} alt="Preview" className="w-full h-full object-cover" />
-                            <button onClick={() => { setImage(null); setPreview(null); setRarity(null); }} className="absolute top-2 right-2 p-1 bg-black/50 rounded-full text-white hover:bg-black/70">
+                        <div className="relative mt-2 rounded-xl overflow-hidden bg-black/40 border border-white/10">
+                            <img src={preview} alt="Preview" className="w-full h-auto max-h-[60vh] object-contain" />
+                            <button onClick={() => { setImage(null); setPreview(null); setRarity(null); }} className="absolute top-2 right-2 p-1.5 bg-black/50 rounded-full text-white hover:bg-black/70 backdrop-blur-md border border-white/10 transition-colors">
                                 <X size={16} />
                             </button>
                         </div>
@@ -704,12 +709,12 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, lockdownMo
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 pointer-events-auto">
-            <div className="w-full max-w-2xl bg-[#0a0a0a] border border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-0 md:p-4 pointer-events-auto">
+            <div className="w-full h-full md:h-auto md:max-w-2xl bg-black/40 backdrop-blur-xl border-x-0 border-y-0 md:border border-white/10 md:rounded-2xl shadow-2xl overflow-hidden flex flex-col md:max-h-[90vh] animate-in zoom-in-95 duration-200 ring-1 ring-white/5">
 
                 {/* Header Bar */}
-                <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between bg-white/5 shrink-0">
-                    <h1 className="text-lg font-bold text-white">Profile</h1>
+                <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between bg-white/5 shrink-0 backdrop-blur-md pt-safe-top">
+                    <h1 className="text-lg font-bold text-white tracking-wider uppercase font-mono">Profile Data</h1>
                     {!lockdownMode && (
                         <button onClick={onClose} className="p-1 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors">
                             <X size={20} />
@@ -718,7 +723,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, lockdownMo
                 </div>
 
                 {/* Content */}
-                <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+                <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent bg-gradient-to-b from-transparent to-black/40 pb-safe-bottom">
                     {loading ? (
                         <div className="flex items-center justify-center h-64">
                             <Loader2 className="animate-spin text-blue-500" size={32} />
@@ -732,60 +737,82 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, lockdownMo
                                     profile={profile}
                                     aiLocalsCount={profile.ai_locals_count || 0}
                                     onEdit={() => setIsEditing(true)}
-                                // onShowLocals prop removed
                                 />
 
                                 {/* Feed Section */}
-                                <div className="mt-2">
-                                    <div className="flex items-center justify-between px-6 py-3 border-b border-white/10">
-                                        <h3 className="font-bold text-white">Activity Feed</h3>
-                                        <button onClick={() => setIsCreatingPost(!isCreatingPost)} className="text-blue-400 text-sm hover:underline">
-                                            {isCreatingPost ? 'Cancel' : '+ New Post'}
+                                <div className="mt-4 px-4 pb-20 md:pb-10">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <h3 className="font-bold text-white text-sm uppercase tracking-wider flex items-center gap-2">
+                                            <span className="w-1 h-4 bg-blue-500 rounded-full"></span>
+                                            Your World
+                                        </h3>
+                                        <button onClick={() => setIsCreatingPost(!isCreatingPost)} className="text-blue-400 text-xs hover:text-blue-300 font-mono border border-blue-500/30 px-3 py-1 rounded-full hover:bg-blue-500/10 transition-colors">
+                                            {isCreatingPost ? 'CANCEL' : '+ NEW EXPLORATION'}
                                         </button>
                                     </div>
 
                                     {isCreatingPost && (
-                                        <CreatePost onPostCreated={() => { setIsCreatingPost(false); fetchPosts(); fetchProfile(); }} onClose={() => setIsCreatingPost(false)} />
+                                        <div className="mb-6 bg-white/5 rounded-xl border border-white/10 overflow-hidden">
+                                            <CreatePost onPostCreated={() => { setIsCreatingPost(false); fetchPosts(); fetchProfile(); }} onClose={() => setIsCreatingPost(false)} />
+                                        </div>
                                     )}
 
-                                    <div className="pb-10 px-0.5">
-                                        {posts.length === 0 ? (
-                                            <div className="text-center py-10 text-gray-500">
-                                                <Globe className="mx-auto mb-2 opacity-50" size={32} />
-                                                <p>No posts yet. Be the first to share!</p>
-                                            </div>
-                                        ) : (
-                                            <div className="grid grid-cols-3 gap-0.5">
-                                                {posts.map(post => (
-                                                    <div key={post.id} onClick={() => setSelectedPost(post)} className="aspect-square relative group cursor-pointer overflow-hidden bg-white/5">
-                                                        {post.image_url ? (
-                                                            <img src={post.image_url} alt="Post" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
-                                                        ) : (
-                                                            <div className="w-full h-full flex items-center justify-center text-xs text-gray-500 p-2 text-center select-none">{post.caption.slice(0, 50)}...</div>
-                                                        )}
+                                    {posts.length === 0 ? (
+                                        <div className="text-center py-12 border border-dashed border-white/10 rounded-2xl bg-white/5">
+                                            <Globe className="mx-auto mb-3 opacity-30" size={40} />
+                                            <p className="text-gray-500 text-sm font-mono">NO DATA LOGGED IN SECTOR</p>
+                                        </div>
+                                    ) : (
+                                        <div className="columns-2 md:columns-3 gap-2 space-y-2">
+                                            {posts.map(post => (
+                                                <div key={post.id} onClick={() => setSelectedPost(post)} className="break-inside-avoid relative group cursor-pointer overflow-hidden bg-white/5 rounded-lg border border-transparent hover:border-white/20 transition-all">
+                                                    {post.image_url ? (
+                                                        <img src={post.image_url} alt="Post" className="w-full h-auto object-contain transition-transform duration-700 opacity-80 group-hover:opacity-100" />
+                                                    ) : (
+                                                        <div className="w-full h-32 flex items-center justify-center text-[10px] text-gray-500 p-2 text-center select-none font-mono tracking-tighter bg-black/40">{post.caption.slice(0, 50)}...</div>
+                                                    )}
 
-                                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white gap-1 pointer-events-none">
-                                                            {post.rarity_score > 0 && <div className="text-xs font-bold flex items-center gap-1"><Sparkles size={12} className="text-amber-400" /> {post.rarity_score}</div>}
-                                                            <div className="flex gap-3 text-xs font-bold">
-                                                                <span className="flex items-center gap-1"><Heart size={12} className="fill-white" /> {post.likes_count}</span>
-                                                                <span className="flex items-center gap-1"><MessageCircle size={12} className="fill-white" /> {post.comments_count}</span>
-                                                            </div>
+                                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white gap-2 pointer-events-none backdrop-blur-[2px]">
+                                                        {post.rarity_score > 0 && <div className="text-[10px] font-bold flex items-center gap-1 uppercase tracking-wider text-amber-300"><Sparkles size={10} /> RARITY {post.rarity_score}</div>}
+                                                        <div className="flex gap-4 text-xs font-bold font-mono">
+                                                            <span className="flex items-center gap-1.5"><Heart size={14} className="fill-white" /> {post.likes_count}</span>
+                                                            <span className="flex items-center gap-1.5"><MessageCircle size={14} className="fill-white" /> {post.comments_count}</span>
                                                         </div>
-
-                                                        {post.is_extraordinary && <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500 shadow-lg ring-1 ring-black/50" />}
                                                     </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
+
+                                                    {post.is_extraordinary && (
+                                                        <div className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]" />
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             </>
                         )
                     ) : (
-                        <div className="p-8 text-center text-red-400">Failed to load profile.</div>
+                        <div className="p-8 text-center text-red-400 font-mono text-sm">ERROR: FAILED TO LOAD PROFILE DATA</div>
                     )}
                 </div>
             </div>
+            {selectedPost && (
+                <PostDetailModal
+                    post={selectedPost}
+                    onClose={() => setSelectedPost(null)}
+                    onUpdate={() => { fetchPosts(); fetchProfile(); }}
+                    onDelete={() => { fetchPosts(); fetchProfile(); }}
+                    hasNext={posts.findIndex(p => p.id === selectedPost.id) < posts.length - 1}
+                    hasPrev={posts.findIndex(p => p.id === selectedPost.id) > 0}
+                    onNext={() => {
+                        const idx = posts.findIndex(p => p.id === selectedPost.id);
+                        if (idx < posts.length - 1) setSelectedPost(posts[idx + 1]);
+                    }}
+                    onPrev={() => {
+                        const idx = posts.findIndex(p => p.id === selectedPost.id);
+                        if (idx > 0) setSelectedPost(posts[idx - 1]);
+                    }}
+                />
+            )}
         </div>
     );
 };

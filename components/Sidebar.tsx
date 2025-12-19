@@ -1,13 +1,15 @@
 import React from 'react';
-import { User, UserPlus, Bell, Settings, MessageSquare } from 'lucide-react';
+import { User, UserPlus, Bell, Settings, MessageCircle } from 'lucide-react';
 
 interface SidebarProps {
     onProfileClick: () => void;
-    onAddFriendsClick?: () => void;
+    onChatsClick?: () => void;
+    onRealFriendsClick?: () => void;
     onNotificationsClick?: () => void;
     onSettingsClick?: () => void;
     unreadNotifications?: number;
     profileId?: string;
+    chatsId?: string;
     addFriendsId?: string;
     notificationsId?: string;
     settingsId?: string;
@@ -15,11 +17,13 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({
     onProfileClick,
-    onAddFriendsClick,
+    onChatsClick,
+    onRealFriendsClick,
     onNotificationsClick,
     onSettingsClick,
     unreadNotifications = 0,
     profileId,
+    chatsId,
     addFriendsId,
     notificationsId,
     settingsId
@@ -40,9 +44,23 @@ const Sidebar: React.FC<SidebarProps> = ({
                     </span>
                 </button>
 
+                {/* AI Chats Button (Formerly Add Friends) */}
+                <button
+                    id={chatsId}
+                    onClick={onChatsClick}
+                    className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-white transition-all active:scale-95 group relative"
+                    title="AI Chats"
+                >
+                    <MessageCircle size={20} />
+                    <span className="absolute right-full mr-3 bg-black/80 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
+                        Chats
+                    </span>
+                </button>
+
+                {/* Real Friends Add Button (New) */}
                 <button
                     id={addFriendsId}
-                    onClick={onAddFriendsClick}
+                    onClick={onRealFriendsClick}
                     className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-white transition-all active:scale-95 group relative"
                     title="Add Friends"
                 >

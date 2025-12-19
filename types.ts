@@ -5,12 +5,17 @@ export interface LocationMarker {
   latitude: number;
   longitude: number;
   description: string;
-  type?: 'Country' | 'State' | 'City' | 'Place' | 'Business' | 'Landmark';
+  type?: 'Country' | 'State' | 'City' | 'Place' | 'Business' | 'Landmark' | 'Post';
   timezone?: string;
   country?: string;
   region?: string;
   googleMapsUri?: string;
   geojson?: any;
+
+  // User Post Data
+  isUserPost?: boolean;
+  postImageUrl?: string;
+  postCaption?: string;
 }
 
 export interface SearchState {
@@ -119,4 +124,11 @@ export interface NotificationData {
     feature: string;
     action?: string;
   };
+  // Dynamic AI Engagement Fields
+  feature?: string;
+  systemMessage?: string;
+  expiresAt?: Date;
+  actionPath?: string;
+  userName?: string;
+  [key: string]: any;
 }

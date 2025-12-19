@@ -74,6 +74,7 @@ export class ServiceCache {
 }
 
 // --- 1. MAPS & LOCATION (Gemini - Best for Tools) ---
+// --- 1. MAPS & LOCATION (Mapbox - Reliable Geocoding) ---
 export const fetchLocationsFromQuery = async (query: string): Promise<LocationMarker[]> => {
   const cacheKey = `loc_${query.toLowerCase().trim()}`;
   const cached = ServiceCache.get<LocationMarker[]>(cacheKey);
@@ -86,85 +87,57 @@ export const fetchLocationsFromQuery = async (query: string): Promise<LocationMa
       const { data } = await supabase
         .from('location_search_cache')
         .select('results, hit_count')
-        .eq('query', cacheKey) // cacheKey is already normalized "loc_..."
+        .eq('query', cacheKey)
         .maybeSingle();
 
       if (data && data.results) {
         console.log("✅ Global Supabase Cache Hit:", query);
-        // Fire-and-forget update for hit count
         supabase.from('location_search_cache')
           .update({ hit_count: (data.hit_count || 0) + 1 })
           .eq('query', cacheKey)
           .then();
-
         return data.results as LocationMarker[];
       }
     } catch (err) {
       console.warn("Supabase Cache Check Failed:", err);
     }
 
-    // Enhanced prompt for "Smart Planet Search"
-    // Handles:
-    // 1. Direct place names ("Paris")
-    // 2. Business names ("MN Garg Trading Co in Bathinda")
-    // 3. Natural language queries ("highest mountain peak", "capital of france")
-    const prompt = `Find location for: "${query}". Return JSON array: [{name, latitude, longitude, description, type, timezone, country?, region?}]. Max 3 results.`;
+    // 2. Use Mapbox via LocationService
+    const { locationService } = await import('./locationService');
+    const mapboxResults = await locationService.searchPlaces(query);
 
-    await APIUsageTracker.trackCall('location_search', 0.002, 'Gemini', apiKey); // Est cost for Flash + Search
+    const results: LocationMarker[] = mapboxResults.map(place => ({
+      id: place.id,
+      name: place.name,
+      description: place.place_name, // Use full address as description
+      latitude: place.center[1], // Mapbox gives [lng, lat]
+      longitude: place.center[0],
+      type: 'Place', // Default type, Mapbox types need mapping if specific needed
+      country: place.country,
+      region: place.region,
+      timezone: 'UTC' // Placeholder, could fetch via timezone api if needed, or leave for later
+    }));
 
-    const result = await ai.models.generateContent({
-      model: MODEL_NAME,
-      contents: prompt,
-      config: {
-        temperature: 0, // Deterministic
-        tools: [{ googleSearch: {} }], // Use Search to find the place first
-      },
-    });
+    if (results.length > 0) {
+      ServiceCache.set(cacheKey, results);
 
-    // Robust JSON Extraction
-    const text = result.text || "[]";
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    const jsonStr = jsonMatch ? jsonMatch[0] : "[]";
-
-    try {
-      const data = JSON.parse(jsonStr);
-      let resultData = Array.isArray(data) ? data.map((item: any, index: number) => ({
-        ...item,
-        id: `loc_${Date.now()}_${index}`,
-        type: item.type || 'Place'
-      })) : [];
-
-      if (resultData.length > 0) {
-        // Enhance with GeoJSON for "Exact Borders"
-        // We fetch for the top result to ensure the "Green Glow" works perfectly for the main match.
-        // Parallelize if multiple, but be mindful of Nominatim rate limits (1 req/sec usually).
-        // Let's just do the first one for now to be safe and fast.
-        const topResult = resultData[0];
-        // GeoJSON fetching removed as per user request
-
-
-        ServiceCache.set(cacheKey, resultData);
-
-        // Save to Supabase (Global Cache)
-        try {
-          const { supabase } = await import('./supabaseClient');
-          await supabase.from('location_search_cache').insert({
-            query: cacheKey,
-            results: resultData,
-            hit_count: 1
-          });
-        } catch (e) {
-          console.warn("Failed to save to Supabase cache", e);
-        }
+      // Save to Supabase (Global Cache)
+      try {
+        const { supabase } = await import('./supabaseClient');
+        await supabase.from('location_search_cache').insert({
+          query: cacheKey,
+          results: results,
+          hit_count: 1
+        });
+      } catch (e) {
+        console.warn("Failed to save to Supabase cache", e);
       }
-      return resultData;
-    } catch (e) {
-      // Fallback: Try internal knowledge if search JSON is malformed
-      return await fetchLocationsInternalFallback(query);
     }
 
+    return results;
+
   } catch (error: any) {
-    handleGeminiError(error, "Location Search");
+    console.error("Mapbox Search Failed:", error);
     return [];
   }
 };
