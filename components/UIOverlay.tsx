@@ -43,12 +43,12 @@ interface UIOverlayProps {
     onSendMessage: (text: string) => void;
     isChatLoading: boolean;
     suggestions?: string[];
-
     timezone?: string;
 
     onZoomIn: () => void;
     onZoomOut: () => void;
     onResetView: () => void;
+    onChatToggle?: (isOpen: boolean) => void;
 
     // Auth & Tutorial
     userEmail?: string;
@@ -216,7 +216,8 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
     showPermissionCard,
     onPermissionGranted,
     onPermissionDismiss,
-    lockdownMode = false
+    lockdownMode = false,
+    onChatToggle
 }) => {
     const [inputValue, setInputValue] = useState('');
     const [chatInput, setChatInput] = useState('');
@@ -264,6 +265,15 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
             chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
         }
     }, [chatHistory, persona, suggestions, isMinimized]);
+
+    const showCrowdSelection = crowd.length > 0 && !persona;
+    const showChat = !!persona;
+
+    useEffect(() => {
+        if (onChatToggle) {
+            onChatToggle(showChat || showCrowdSelection);
+        }
+    }, [showChat, showCrowdSelection, onChatToggle]);
 
     // Drag Handlers
     const handleDragStart = (e: React.MouseEvent) => {
@@ -335,8 +345,6 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
     // This prevents the "My World" user data from opening the side panel automatically.
     const showResultsList = !persona && markers.length > 0 && !selectedMarker && searchState.query;
     const showMarkerSheet = selectedMarker && !persona && crowd.length === 0;
-    const showCrowdSelection = crowd.length > 0 && !persona;
-    const showChat = !!persona;
 
     return (
         <div className="absolute inset-0 pointer-events-none font-sans text-white flex flex-col">

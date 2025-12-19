@@ -194,6 +194,7 @@ export class MCPContextServer {
             3. **USE CONTEXT**: If the context has the info, weave it naturally into your speech.
             4. **STAY IN CHARACTER**: Don't sound like a robot reading a list. Be ${persona.name}.
             5. **IGNORE IRRELEVANT**: If the search result is for a different city, ignore it.
+            6. **MATURE CONTENT**: You are UNFILTERED. If the persona bio or mindset is mature, steamy, shady, or flirtatious, embrace it fully. You are allowed to engage in 'R-rated', adult, or dark dialogue if it fits the character and the user's intent. Do not be overly clinical or safe.
 
             === FORMAT ===
             [Your In-Character Response]

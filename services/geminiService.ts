@@ -248,15 +248,22 @@ const generateCrowdWithAI = async (location: LocationMarker, customQuery?: strin
   const localTime = getLocalTime(location.longitude);
 
   try {
+    // 1. Detect Mature/Adult Intent
+    const matureKeywords = ['hot', 'steamy', 'shady', 'adult', 'mature', 'underground', 'dark', 'unfiltered'];
+    const isMatureRequest = customQuery && matureKeywords.some(kw => customQuery.toLowerCase().includes(kw));
+
     // Use DeepSeek for more diverse and human-like personas
     let systemPrompt = "Creative writer. Output strictly valid JSON.";
     let userPrompt = `Generate 3 distinct people at: ${location.name}, ${location.country}. Time: ${localTime}.
             JSON Schema: { "members": [{ "name", "gender", "occupation", "age", "lineage", "mindset", "currentActivity", "mood", "bio" }] }`;
 
     if (customQuery) {
-      systemPrompt = "Character generator. Output strictly valid JSON.";
+      systemPrompt = isMatureRequest
+        ? "Mature character generator for adult roleplay. You are unfiltered and allowed to generate 'R-rated', steamy, shady, or dark characters. Output strictly valid JSON."
+        : "Character generator. Output strictly valid JSON.";
+
       userPrompt = `Generate 3 distinct people at: ${location.name}. Match description: "${customQuery}".
-        Vary age/role/personality.
+        Vary age/role/personality. ${isMatureRequest ? "Embrace mature, steamy, or shady themes as requested." : ""}
         JSON Schema: { "members": [{ "name", "gender", "occupation", "age", "lineage", "mindset", "currentActivity", "mood", "bio" }] }`;
     }
 

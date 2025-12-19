@@ -54,6 +54,7 @@ const App: React.FC = () => {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showPermissionCard, setShowPermissionCard] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   // Notification Handlers (Optimistic Updates)
   const handleMarkAsRead = useCallback(async (id: string) => {
@@ -687,6 +688,7 @@ const App: React.FC = () => {
           onSignOut={handleSignOut}
           onRestartTutorial={handleRestartTutorial}
           onResumeSession={handleResumeSession}
+          onChatToggle={setIsChatOpen}
 
           notifications={notifications}
           unreadNotifications={unreadCount}
@@ -705,8 +707,8 @@ const App: React.FC = () => {
           onSkip={handleTutorialComplete}
         />
 
-        {/* Universal Support Chat */}
-        {session?.user && <SupportChat userId={session.user.id} />}
+        {/* Universal Support Chat (Atlas AI) */}
+        {session?.user && !isChatOpen && <SupportChat userId={session.user.id} />}
 
       </div>
     </ErrorBoundary>
