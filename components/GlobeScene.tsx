@@ -24,7 +24,7 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
   const [{ phi, theta, scale }, api] = useSpring(() => ({
     phi: 0,
     theta: 0.3,
-    scale: window.innerWidth < 768 ? 0.75 : 1.1,
+    scale: window.innerWidth < 768 ? 0.65 : 1.1,
     config: { mass: 1, tension: 280, friction: 60 },
   }));
 
@@ -40,7 +40,7 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
       api.start({
         phi: adjustedPhi,
         theta: adjustedTheta,
-        scale: isMobile.current ? 1.3 : 1.5,
+        scale: isMobile.current ? 1.0 : 1.5,
       });
     },
     zoomIn: () => {
@@ -225,8 +225,8 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
       <canvas
         ref={canvasRef}
         style={{
-          width: '90vw',
-          height: '90vw',
+          width: '80vmin',
+          height: '80vmin',
           contain: 'layout paint size',
           opacity: 0,
           transition: 'opacity 1s ease',
@@ -235,8 +235,8 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
           left: '50%',
           top: '50%',
           transform: 'translate(-50%, -50%)',
-          maxWidth: '90vw',
-          maxHeight: '90vh'
+          maxWidth: '95vw',
+          maxHeight: '95vh'
         }}
         onContextMenu={(e) => e.preventDefault()}
       />
