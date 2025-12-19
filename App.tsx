@@ -235,18 +235,20 @@ const App: React.FC = () => {
           console.log("Fetching user posts for:", session.user.id);
           socialService.fetchPosts(session.user.id).then(posts => {
             console.log("Fetched user posts:", posts.length);
-            const userLocations: LocationMarker[] = posts.map(p => ({
-              id: `post-${p.id}`,
-              name: p.location_name || 'Tagged Location',
-              latitude: p.location_lat,
-              longitude: p.location_lng,
-              description: p.caption,
-              type: 'Post',
-              isUserPost: true,
-              postImageUrl: p.image_url,
-              postCaption: p.caption,
-              country: p.country
-            }));
+            const userLocations: LocationMarker[] = posts
+              .filter(p => p.location_lat && p.location_lng)
+              .map(p => ({
+                id: `post-${p.id}`,
+                name: p.location_name || 'Tagged Location',
+                latitude: p.location_lat!,
+                longitude: p.location_lng!,
+                description: p.caption,
+                type: 'Post',
+                isUserPost: true,
+                postImageUrl: p.image_url,
+                postCaption: p.caption,
+                country: p.country
+              }));
 
             if (userLocations.length > 0) {
               console.log("Setting user markers:", userLocations);

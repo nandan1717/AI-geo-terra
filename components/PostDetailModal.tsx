@@ -209,7 +209,20 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, onClose,
                             />
                         </div>
                     ) : (
-                        <div className="text-gray-500 text-center p-10 font-mono text-sm">{post.caption}</div>
+                        <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center select-none bg-gradient-to-br from-gray-900 to-black">
+                            <MessageCircle size={48} className="text-blue-500/50 mb-6" />
+                            <div className="max-w-md">
+                                <p className="text-lg md:text-2xl text-gray-200 font-medium leading-relaxed theme-font-primary">
+                                    "{post.caption}"
+                                </p>
+                                {post.location_name && (
+                                    <div className="mt-6 flex items-center justify-center gap-2 text-sm text-blue-400 uppercase tracking-wider">
+                                        <MapPin size={14} />
+                                        <span>{post.location_name}</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     )}
 
                     {/* Rarity Overlay - Repositioned for Mobile (Left) */}

@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { ChevronLeft, MapPin, MessageCircle } from 'lucide-react';
+import { ChevronLeft, MapPin, MessageCircle, X } from 'lucide-react';
 
 interface AILocal {
     persona_name: string;
@@ -15,9 +15,10 @@ interface AILocalsListProps {
     locals: AILocal[];
     onClose: () => void;
     onChat: (local: AILocal) => void;
+    onDelete?: (local: AILocal) => void;
 }
 
-const AILocalsList: React.FC<AILocalsListProps> = ({ locals, onClose, onChat }) => (
+const AILocalsList: React.FC<AILocalsListProps> = ({ locals, onClose, onChat, onDelete }) => (
     <div className="flex flex-col h-full bg-[#0a0a0a]">
         <div className="flex items-center gap-2 p-4 border-b border-white/10 shrink-0">
             <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full text-white transition-colors">
@@ -38,13 +39,29 @@ const AILocalsList: React.FC<AILocalsListProps> = ({ locals, onClose, onChat }) 
                             </p>
                         </div>
                     </div>
-                    <button
-                        onClick={() => onChat(local)}
-                        className="p-2 bg-blue-600/20 text-blue-400 rounded-full hover:bg-blue-600 hover:text-white transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
-                        title="Chat"
-                    >
-                        <MessageCircle size={18} />
-                    </button>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {onDelete && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (confirm(`Are you sure you want to remove ${local.persona_name} from your connections? History will be deleted.`)) {
+                                        onDelete(local);
+                                    }
+                                }}
+                                className="p-2 bg-red-500/10 text-red-400 rounded-full hover:bg-red-500 hover:text-white transition-all mr-1"
+                                title="Delete Connection"
+                            >
+                                <X size={18} />
+                            </button>
+                        )}
+                        <button
+                            onClick={() => onChat(local)}
+                            className="p-2 bg-blue-600/20 text-blue-400 rounded-full hover:bg-blue-600 hover:text-white transition-all"
+                            title="Chat"
+                        >
+                            <MessageCircle size={18} />
+                        </button>
+                    </div>
                 </div>
             ))}
             {locals.length === 0 && (

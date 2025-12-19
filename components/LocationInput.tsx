@@ -93,44 +93,56 @@ const LocationInput: React.FC<LocationInputProps> = ({ value, onLocationSelect, 
     };
 
     return (
-        <div className={`relative ${className}`} ref={wrapperRef}>
-            <div className="flex items-center bg-white/5 border border-white/10 rounded-lg focus-within:border-blue-500 transition-colors pr-2">
+        <div className={`relative group ${className}`} ref={wrapperRef}>
+            <div className="flex items-center bg-black/40 border border-white/10 rounded-xl focus-within:border-blue-500/50 focus-within:bg-black/60 focus-within:shadow-[0_0_15px_rgba(59,130,246,0.1)] transition-all duration-300 pr-1 overflow-hidden backdrop-blur-sm">
+                <div className="pl-3 text-gray-400">
+                    <MapPin size={14} className="opacity-70" />
+                </div>
                 <input
                     type="text"
                     value={query}
                     onChange={handleInputChange}
                     onKeyDown={handleKeyDown}
                     placeholder={placeholder}
-                    className="flex-1 bg-transparent border-none outline-none text-white text-sm px-3 py-2 placeholder-gray-500 min-w-0"
+                    className="flex-1 bg-transparent border-none outline-none text-white text-xs sm:text-sm px-2 py-2.5 placeholder-gray-500/70 min-w-0"
                     onFocus={() => setShowSuggestions(true)}
                 />
-                <div className="flex items-center gap-1 flex-shrink-0">
+                <div className="flex items-center gap-1 flex-shrink-0 mr-1">
                     {query && (
-                        <button onClick={() => { setQuery(''); setSuggestions([]); }} className="p-1.5 text-gray-500 hover:text-white hover:bg-white/10 rounded-full transition-colors">
+                        <button onClick={() => { setQuery(''); setSuggestions([]); }} className="p-1 text-gray-500 hover:text-white hover:bg-white/10 rounded-full transition-colors">
                             <X size={14} />
                         </button>
                     )}
                     <button
                         onClick={handleCurrentLocation}
                         disabled={loading}
-                        className="p-1.5 text-blue-400 hover:bg-blue-500/10 rounded-full transition-colors"
+                        className="p-1.5 text-blue-400/80 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
                         title="Use current location"
                     >
-                        {loading ? <Loader2 size={16} className="animate-spin" /> : <MapPin size={16} />}
+                        {loading ? <Loader2 size={14} className="animate-spin" /> : <MapPin size={14} />}
                     </button>
                 </div>
             </div>
 
+            {/* Dropdown Results */}
             {showSuggestions && suggestions.length > 0 && (
-                <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-[#1a1a1a] border border-white/10 rounded-lg shadow-xl overflow-hidden max-h-60 overflow-y-auto">
+                <div className="absolute z-[100] left-0 right-0 top-full mt-2 bg-[#0a0a0a] border border-white/10 rounded-xl shadow-2xl overflow-hidden max-h-60 overflow-y-auto backdrop-blur-xl ring-1 ring-white/5 animate-in fade-in slide-in-from-top-1 duration-200 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
+                    <div className="px-3 py-2 text-[10px] uppercase font-bold text-gray-500 tracking-wider bg-white/5 border-b border-white/5">
+                        Suggested Locations
+                    </div>
                     {suggestions.map((place) => (
                         <button
                             key={place.id}
                             onClick={() => handleSelect(place)}
-                            className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-white/10 hover:text-white transition-colors border-b border-white/5 last:border-0"
+                            className="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-blue-600/10 hover:text-white transition-colors border-b border-white/5 last:border-0 group flex flex-col gap-0.5"
                         >
-                            <div className="font-medium text-white">{place.name}</div>
-                            <div className="text-xs text-gray-500 truncate">{place.place_name}</div>
+                            <div className="font-medium text-white group-hover:text-blue-400 transition-colors flex items-center gap-2">
+                                <MapPin size={12} className="opacity-50" />
+                                {place.name}
+                            </div>
+                            <div className="text-[10px] text-gray-500 truncate pl-5 opacity-70 group-hover:opacity-100 transition-opacity">
+                                {place.place_name}
+                            </div>
                         </button>
                     ))}
                 </div>

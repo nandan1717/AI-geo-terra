@@ -3,11 +3,11 @@ import { supabase } from './supabaseClient';
 export interface Post {
     id: number;
     user_id: string;
-    image_url: string;
+    image_url?: string; // Optional for text-only
     caption: string;
-    location_name: string;
-    location_lat: number;
-    location_lng: number;
+    location_name?: string; // Optional for text-only
+    location_lat?: number;
+    location_lng?: number;
     created_at: string;
     user: {
         username: string;
@@ -22,6 +22,8 @@ export interface Post {
     country?: string;
     region?: string;
     continent?: string;
+    rarity_score: number;
+    is_extraordinary: boolean;
 }
 
 export interface Comment {
@@ -173,73 +175,82 @@ export const socialService = {
     },
 
     async createPost(
-        file: File,
+        file: File | null,
         caption: string,
-        location: { name: string, lat: number, lng: number, region?: string, country?: string, continent?: string },
+        location: { name: string, lat: number, lng: number, region?: string, country?: string, continent?: string } | null,
         rarity?: { score: number, isExtraordinary: boolean, continent?: string | null }
     ) {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) throw new Error("Not authenticated");
 
-        // 1. Upload Image
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${user.id}/${Date.now()}.${fileExt}`;
-        const { error: uploadError } = await supabase.storage
-            .from('social_media')
-            .upload(fileName, file);
+        let publicUrl = null;
+        let xpGained = 0;
+        let finalLocation = { name: null as string | null, lat: null as number | null, lng: null as number | null, country: null as string | null, region: null as string | null, continent: null as string | null };
 
-        if (uploadError) throw uploadError;
+        // 1. Handle Image Upload & XP (Only if Image AND Location are provided)
+        if (file && location) {
+            const fileExt = file.name.split('.').pop();
+            const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+            const { error: uploadError } = await supabase.storage
+                .from('social_media')
+                .upload(fileName, file);
 
-        const { data: { publicUrl } } = supabase.storage
-            .from('social_media')
-            .getPublicUrl(fileName);
+            if (uploadError) throw uploadError;
 
-        // 2. Calculate XP (Simplified: 1 XP per post/city)
-        let xpGained = 1;
+            const { data: { publicUrl: url } } = supabase.storage
+                .from('social_media')
+                .getPublicUrl(fileName);
 
-        // Fetch current profile
-        const { data: profile } = await supabase
-            .from('app_profiles_v2')
-            .select('*')
-            .eq('id', user.id)
-            .single();
+            publicUrl = url;
+            finalLocation = { ...location };
 
-        if (profile) {
-            // Update Stats (Visited Lists) - No extra XP, just tracking
-            const visitedRegions = profile.visited_regions || [];
-            if (location.region && !visitedRegions.includes(location.region)) {
-                visitedRegions.push(location.region);
+            // 2. Calculate XP (Simplified: 1 XP per post/city)
+            xpGained = 1;
+
+            // Fetch current profile for Stats Update
+            const { data: profile } = await supabase
+                .from('app_profiles_v2')
+                .select('*')
+                .eq('id', user.id)
+                .single();
+
+            if (profile) {
+                // Update Stats (Visited Lists) - No extra XP, just tracking
+                const visitedRegions = profile.visited_regions || [];
+                if (location.region && !visitedRegions.includes(location.region)) {
+                    visitedRegions.push(location.region);
+                }
+
+                const visitedCountries = profile.visited_countries || [];
+                if (location.country && !visitedCountries.includes(location.country)) {
+                    visitedCountries.push(location.country);
+                }
+
+                const visitedContinents = profile.visited_continents || [];
+                const continent = rarity?.continent || location.continent;
+                if (continent && !visitedContinents.includes(continent)) {
+                    visitedContinents.push(continent);
+                }
+
+                // Update Profile Stats
+                const newXP = (profile.xp || 0) + xpGained;
+                const newLevel = Math.floor(newXP / 1000) + 1;
+
+                // Region Stats
+                const regionStats = profile.region_stats || {};
+                if (location.region) {
+                    regionStats[location.region] = (regionStats[location.region] || 0) + xpGained;
+                }
+
+                await socialService.updateProfile({
+                    xp: newXP,
+                    level: newLevel,
+                    region_stats: regionStats,
+                    visited_regions: visitedRegions,
+                    visited_countries: visitedCountries,
+                    visited_continents: visitedContinents
+                } as any);
             }
-
-            const visitedCountries = profile.visited_countries || [];
-            if (location.country && !visitedCountries.includes(location.country)) {
-                visitedCountries.push(location.country);
-            }
-
-            const visitedContinents = profile.visited_continents || [];
-            const continent = rarity?.continent || location.continent;
-            if (continent && !visitedContinents.includes(continent)) {
-                visitedContinents.push(continent);
-            }
-
-            // Update Profile Stats
-            const newXP = (profile.xp || 0) + xpGained;
-            const newLevel = Math.floor(newXP / 1000) + 1; // 1000 XP per level (Maybe 100? User said 1 XP only... sticking to existing level math for now or should I adjust level scaling? User didn't ask to change level curve, just XP gain. 1000 posts for level 2 is hard. But I will strictly follow "1 city = 1 xp" request for now.)
-
-            // Region Stats
-            const regionStats = profile.region_stats || {};
-            if (location.region) {
-                regionStats[location.region] = (regionStats[location.region] || 0) + xpGained;
-            }
-
-            await socialService.updateProfile({
-                xp: newXP,
-                level: newLevel,
-                region_stats: regionStats,
-                visited_regions: visitedRegions,
-                visited_countries: visitedCountries,
-                visited_continents: visitedContinents
-            } as any);
         }
 
         // 3. Create Post Record
@@ -247,18 +258,18 @@ export const socialService = {
             .from('app_posts')
             .insert({
                 user_id: user.id,
-                image_url: publicUrl,
-                caption: caption, // Clean caption, no XP suffix
-                location_name: location.name,
-                location_lat: location.lat,
-                location_lng: location.lng,
+                image_url: publicUrl, // Can be null now
+                caption: caption,
+                location_name: finalLocation.name,
+                location_lat: finalLocation.lat,
+                location_lng: finalLocation.lng,
                 is_hidden: false,
                 xp_earned: xpGained,
                 rarity_score: rarity?.score || 0,
                 is_extraordinary: rarity?.isExtraordinary || false,
-                country: location.country,
-                region: location.region,
-                continent: rarity?.continent || location.continent
+                country: finalLocation.country,
+                region: finalLocation.region,
+                continent: rarity?.continent || finalLocation.continent
             })
             .select()
             .single();

@@ -511,6 +511,15 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                                     });
                                 }
                             }}
+                            onDelete={(local) => {
+                                if (userId) {
+                                    import('../services/chatService').then(({ chatService }) => {
+                                        chatService.deleteConversation(userId, local.persona_name).then(() => {
+                                            setAiLocals(prev => prev.filter(p => p.persona_name !== local.persona_name));
+                                        });
+                                    });
+                                }
+                            }}
                         />
                     </div>
                 )

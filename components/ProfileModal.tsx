@@ -153,7 +153,7 @@ const CreatePost: React.FC<{ onPostCreated: () => void, onClose: () => void }> =
     // Auto-analyze when both image and location are present
     useEffect(() => {
         const analyze = async () => {
-            if (location && !rarity && !analyzingRarity) {
+            if (image && location && !rarity && !analyzingRarity) { // Only analyze rarity if IMAGE is present
                 setAnalyzingRarity(true);
                 // Use DeepSeek for fact-based analysis of the location context
                 const result = await analyzeLocationRarity(location.name, location.lat, location.lng, location.country);
@@ -162,13 +162,26 @@ const CreatePost: React.FC<{ onPostCreated: () => void, onClose: () => void }> =
             }
         };
         analyze();
-    }, [location]);
+    }, [location, image]);
 
     const handleSubmit = async () => {
-        if (!image || !location) return;
+        if (!caption && !image) return; // Must have at least one
+
+        // Validation: If Image is present, Location is REQUIRED (for XP/Globe).
+        // If Text Only, Location is OPTIONAL (No XP).
+        if (image && !location) {
+            alert("Please tag a location for your photo to earn XP.");
+            return;
+        }
+
         setLoading(true);
         try {
-            await socialService.createPost(image, caption, location, rarity ? { score: rarity.score, isExtraordinary: rarity.isExtraordinary, continent: rarity.continent } : undefined);
+            await socialService.createPost(
+                image,
+                caption,
+                location,
+                rarity ? { score: rarity.score, isExtraordinary: rarity.isExtraordinary, continent: rarity.continent } : undefined
+            );
             onPostCreated();
             onClose();
         } catch (error) {
@@ -182,13 +195,13 @@ const CreatePost: React.FC<{ onPostCreated: () => void, onClose: () => void }> =
     return (
         <div className="p-4 border-b border-white/10 bg-white/5">
             <div className="flex gap-3">
-                <div className="w-10 h-10 rounded-full bg-gray-700 flex-shrink-0" />
-                <div className="flex-1">
+                <div className="w-10 h-10 rounded-full bg-gray-700 flex-shrink-0 border border-white/10" />
+                <div className="flex-1 w-full min-w-0"> {/* Ensure flex child doesn't overflow */}
                     <textarea
                         placeholder="What's happening?"
                         value={caption}
                         onChange={(e) => setCaption(e.target.value)}
-                        className="w-full bg-transparent border-none outline-none text-white placeholder-gray-500 resize-none min-h-[60px]"
+                        className="w-full bg-transparent border-none outline-none text-white placeholder-gray-500 resize-none min-h-[80px] text-base"
                     />
 
                     {/* Rarity Badge */}
@@ -217,26 +230,28 @@ const CreatePost: React.FC<{ onPostCreated: () => void, onClose: () => void }> =
                             </button>
                         </div>
                     )}
-                    <div className="flex items-center justify-between mt-3 gap-2">
-                        <div className="flex items-center gap-2 flex-1">
-                            <label className="p-2 text-blue-400 hover:bg-blue-500/10 rounded-full cursor-pointer transition-colors flex-shrink-0">
+
+                    {/* Controls Bar */}
+                    <div className="flex flex-col gap-3 mt-3">
+                        <div className="flex items-center gap-2 w-full">
+                            <label className={`p-3 rounded-xl cursor-pointer transition-colors flex-shrink-0 border flex items-center justify-center ${image ? 'bg-blue-500/20 text-blue-400 border-blue-500/50' : 'bg-black/40 border-white/10 text-gray-400 hover:text-white hover:bg-white/10'}`}>
                                 <ImageIcon size={20} />
                                 <input type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
                             </label>
-                            <div className="flex-1 max-w-xs">
+                            <div className="flex-1 min-w-0">
                                 <LocationInput
                                     value={location ? location.name : ''}
                                     onLocationSelect={setLocation}
-                                    placeholder="Search location..."
+                                    placeholder={image ? "Location..." : "Location (Optional)..."}
                                 />
                             </div>
                         </div>
                         <button
                             onClick={handleSubmit}
-                            disabled={!image || !location || loading || analyzingRarity}
-                            className="px-4 py-1.5 bg-blue-600 text-white rounded-full text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-500 transition-colors flex-shrink-0"
+                            disabled={(!image && !caption.trim()) || loading || analyzingRarity}
+                            className="w-full py-2 bg-blue-600 text-white rounded-full text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-500 transition-colors shadow-lg shadow-blue-900/20"
                         >
-                            {loading ? <Loader2 size={16} className="animate-spin" /> : 'Post'}
+                            {loading ? <Loader2 size={16} className="animate-spin mx-auto" /> : 'Post'}
                         </button>
                     </div>
                 </div>
@@ -761,7 +776,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, targetUser
                                     </div>
 
                                     {isCreatingPost && (
-                                        <div className="mb-6 bg-white/5 rounded-xl border border-white/10 overflow-hidden">
+                                        <div className="mb-6 bg-white/5 rounded-xl border border-white/10 relative z-20">
                                             <CreatePost onPostCreated={() => { setIsCreatingPost(false); fetchPosts(); fetchProfile(); }} onClose={() => setIsCreatingPost(false)} />
                                         </div>
                                     )}
@@ -774,11 +789,22 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, targetUser
                                     ) : (
                                         <div className="columns-2 md:columns-3 gap-2 space-y-2">
                                             {posts.map(post => (
-                                                <div key={post.id} onClick={() => setSelectedPost(post)} className="break-inside-avoid relative group cursor-pointer overflow-hidden bg-white/5 rounded-lg border border-transparent hover:border-white/20 transition-all">
+                                                <div key={post.id} onClick={() => setSelectedPost(post)} className="break-inside-avoid relative group cursor-pointer overflow-hidden bg-white/5 rounded-lg border border-transparent hover:border-white/20 transition-all mb-2">
                                                     {post.image_url ? (
                                                         <img src={post.image_url} alt="Post" className="w-full h-auto object-contain transition-transform duration-700 opacity-80 group-hover:opacity-100" />
                                                     ) : (
-                                                        <div className="w-full h-32 flex items-center justify-center text-[10px] text-gray-500 p-2 text-center select-none font-mono tracking-tighter bg-black/40">{post.caption.slice(0, 50)}...</div>
+                                                        <div className="w-full h-auto min-h-[160px] flex flex-col items-center justify-center p-4 text-center select-none bg-gradient-to-br from-gray-900 to-black border border-white/5">
+                                                            <MessageCircle size={24} className="text-blue-500/50 mb-3" />
+                                                            <p className="text-xs text-gray-300 font-medium line-clamp-4 leading-relaxed px-2 theme-font-primary">
+                                                                {post.caption}
+                                                            </p>
+                                                            {post.location_name && (
+                                                                <div className="mt-3 flex items-center gap-1 text-[10px] text-gray-500 uppercase tracking-wider">
+                                                                    <MapPin size={10} />
+                                                                    <span className="truncate max-w-[100px]">{post.location_name}</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     )}
 
                                                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white gap-2 pointer-events-none backdrop-blur-[2px]">

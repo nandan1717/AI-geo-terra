@@ -122,6 +122,20 @@ export const chatService = {
     },
 
     /**
+     * Deletes all chat sessions and history for a specific persona name.
+     */
+    async deleteConversation(userId: string, personaName: string) {
+        // Delete all sessions with this persona name for this user
+        const { error } = await supabase
+            .from('chat_sessions')
+            .delete()
+            .eq('user_id', userId)
+            .eq('persona_name', personaName);
+
+        if (error) throw error;
+    },
+
+    /**
      * Toggles the favorite status of a session.
      */
     async toggleFavorite(sessionId: string, isFavorite: boolean) {
