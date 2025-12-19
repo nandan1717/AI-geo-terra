@@ -225,8 +225,8 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
       <canvas
         ref={canvasRef}
         style={{
-          width: '80vmin',
-          height: '80vmin',
+          width: '100%',
+          height: '100%',
           contain: 'layout paint size',
           opacity: 0,
           transition: 'opacity 1s ease',
@@ -234,9 +234,7 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
           zIndex: 10,
           left: '50%',
           top: '50%',
-          transform: 'translate(-50%, -50%)',
-          maxWidth: '95vw',
-          maxHeight: '95vh'
+          transform: 'translate(-50%, -50%)'
         }}
         onContextMenu={(e) => e.preventDefault()}
       />
