@@ -18,6 +18,7 @@ interface ProfileModalProps {
     isOpen: boolean;
     onClose: () => void;
     userEmail?: string;
+    targetUserId?: string; // New: ID of the user whose profile we are viewing
     lockdownMode?: boolean;
 }
 
@@ -31,10 +32,11 @@ interface ProfileModalProps {
 interface ProfileHeaderProps {
     profile: UserProfile;
     aiLocalsCount: number;
+    isOwnProfile: boolean;
     onEdit: () => void;
 }
 
-const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profile, aiLocalsCount, onEdit }) => {
+const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profile, aiLocalsCount, isOwnProfile, onEdit }) => {
     // Gamification Calculations
     const level = profile.level || 1;
     const cwXp = profile.xp || 0;
@@ -70,9 +72,11 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profile, aiLocalsCount, o
                         )}
                     </div>
                 </div>
-                <button onClick={onEdit} className="px-3 py-1.5 rounded-lg border border-white/20 text-xs font-medium text-white hover:bg-white/10 transition-colors">
-                    Edit
-                </button>
+                {isOwnProfile && (
+                    <button onClick={onEdit} className="px-3 py-1.5 rounded-lg border border-white/20 text-xs font-medium text-white hover:bg-white/10 transition-colors">
+                        Edit
+                    </button>
+                )}
             </div>
 
             <div className="mt-4">
@@ -614,13 +618,17 @@ const EditProfile: React.FC<{ profile: UserProfile, onSave: () => void, onCancel
 
 
 
-const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, lockdownMode = false }) => {
+const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, targetUserId, lockdownMode = false }) => {
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [loading, setLoading] = useState(true);
     const [isEditing, setIsEditing] = useState(false);
     const [posts, setPosts] = useState<Post[]>([]);
     const [isCreatingPost, setIsCreatingPost] = useState(false);
     const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+    const [userEmail, setUserEmail] = useState<string | undefined>();
+    const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+    const isOwnProfile = !targetUserId || targetUserId === currentUserId;
 
     // AI Locals State (Removed - moved to UIOverlay)
 
@@ -629,21 +637,27 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, lockdownMo
         try {
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
-                let { data, error } = await supabase.from('app_profiles_v2').select('*').eq('id', user.id).single();
+                setCurrentUserId(user.id);
+                setUserEmail(user.email);
+            }
 
-                // Handle missing profile (new user)
-                if (error && (error.code === 'PGRST116' || (error as any).status === 406)) {
+            const effectiveUserId = targetUserId || user?.id;
+            if (effectiveUserId) {
+                let { data, error } = await supabase.from('app_profiles_v2').select('*').eq('id', effectiveUserId).single();
+
+                // Handle missing profile (only if it's the current user)
+                if (error && !targetUserId && (error.code === 'PGRST116' || (error as any).status === 406)) {
                     console.log("Profile not found, creating default...");
-                    const rawName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'Explorer';
+                    const rawName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Explorer';
 
                     const newProfile = {
-                        id: user.id,
+                        id: user!.id,
                         username: rawName.replace(/\s+/g, '').toLowerCase() + Math.floor(Math.random() * 1000),
                         full_name: rawName,
                         bio: 'Ready to explore the world.',
                         occupation: 'Explorer',
                         location: 'Unknown Sector',
-                        avatar_url: user.user_metadata?.avatar_url || '',
+                        avatar_url: user?.user_metadata?.avatar_url || '',
                         explored_percent: 0,
                         regions_count: 0,
                         places_count: 0,
@@ -664,7 +678,6 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, lockdownMo
 
                     if (createError) {
                         console.error("Failed to create default profile:", createError);
-                        // Fallback to local state if DB insert fails (e.g. RLS issue)
                         data = newProfile;
                     } else {
                         data = createdProfile;
@@ -674,14 +687,9 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, lockdownMo
                 }
 
                 setProfile(data);
-
-                // Fetch AI Locals
-                const locals = await chatService.getUniqueLocals();
-                // setAiLocals(locals); // This line was commented out or removed in a previous step, but the instruction was to remove `setAiLocals([])` from the catch block.
             }
         } catch (error) {
             console.error("Error fetching profile:", error);
-            // No setAiLocals([]) call found here to remove.
         } finally {
             setLoading(false);
         }
@@ -690,8 +698,9 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, lockdownMo
     const fetchPosts = async () => {
         try {
             const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                const data = await socialService.fetchPosts(user.id);
+            const effectiveUserId = targetUserId || user?.id;
+            if (effectiveUserId) {
+                const data = await socialService.fetchPosts(effectiveUserId);
                 setPosts(data);
             }
         } catch (error) {

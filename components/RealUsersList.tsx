@@ -13,9 +13,10 @@ interface RealUser {
 
 interface RealUsersListProps {
     onClose: () => void;
+    onUserSelect: (userId: string) => void;
 }
 
-const RealUsersList: React.FC<RealUsersListProps> = ({ onClose }) => {
+const RealUsersList: React.FC<RealUsersListProps> = ({ onClose, onUserSelect }) => {
     const [query, setQuery] = useState('');
     const [users, setUsers] = useState<RealUser[]>([]);
     const [loading, setLoading] = useState(false);
@@ -82,25 +83,25 @@ const RealUsersList: React.FC<RealUsersListProps> = ({ onClose }) => {
                 )}
 
                 {users.map((user) => (
-                    <div key={user.id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5 hover:bg-white/10 transition-colors animate-in fade-in slide-in-from-bottom-2">
-                        <div className="flex items-center gap-3">
+                    <div key={user.id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5 hover:bg-white/10 transition-colors animate-in fade-in slide-in-from-bottom-2 group cursor-pointer">
+                        <div className="flex items-center gap-3 flex-1" onClick={() => onUserSelect(user.id)}>
                             <img
                                 src={user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`}
                                 alt={user.username}
                                 className="w-10 h-10 rounded-full object-cover border border-white/10"
                             />
                             <div>
-                                <h3 className="font-bold text-white text-sm">{user.full_name || user.username}</h3>
+                                <h3 className="font-bold text-white text-sm group-hover:text-blue-400 transition-colors">{user.full_name || user.username}</h3>
                                 <p className="text-xs text-gray-400">@{user.username}</p>
                                 {user.location && <p className="text-[10px] text-blue-400/80 mt-0.5 font-mono">{user.location}</p>}
                             </div>
                         </div>
                         <button
-                            onClick={() => handleAdd(user.id)}
+                            onClick={(e) => { e.stopPropagation(); handleAdd(user.id); }}
                             disabled={addedUsers.includes(user.id)}
-                            className={`p-2 rounded-full transition-all ${addedUsers.includes(user.id)
-                                    ? 'bg-green-500/20 text-green-400 cursor-default'
-                                    : 'bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white'
+                            className={`p-2 rounded-full transition-all shrink-0 ${addedUsers.includes(user.id)
+                                ? 'bg-green-500/20 text-green-400 cursor-default'
+                                : 'bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white'
                                 }`}
                         >
                             {addedUsers.includes(user.id) ? <Check size={18} /> : <UserPlus size={18} />}

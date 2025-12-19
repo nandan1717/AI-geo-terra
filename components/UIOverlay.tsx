@@ -226,6 +226,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
     const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
     const [isAddFriendsOpen, setIsAddFriendsOpen] = useState(false); // Used for AI Chats
     const [isRealFriendsOpen, setIsRealFriendsOpen] = useState(false); // New: Real Users Search
+    const [viewingProfileId, setViewingProfileId] = useState<string | null>(null); // New: ID for viewing others
     const [aiLocals, setAiLocals] = useState<any[]>([]); // AI Locals State
 
     const inputRef = useRef<HTMLInputElement>(null);
@@ -349,12 +350,16 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
             {/* Hide Sidebar if any panel is open to prevent overlap */}
             {!(isProfileOpen || isNotificationPanelOpen || isSettingsPanelOpen || isAddFriendsOpen || isRealFriendsOpen) && (
                 <Sidebar
-                    onProfileClick={() => setIsProfileOpen(true)}
+                    onProfileClick={() => {
+                        setViewingProfileId(null);
+                        setIsProfileOpen(true);
+                    }}
                     onChatsClick={() => { // Old "Add Friends" is now Chats
                         setIsAddFriendsOpen(true);
                         setIsNotificationPanelOpen(false);
                         setIsSettingsPanelOpen(false);
                         setIsRealFriendsOpen(false);
+                        setViewingProfileId(null);
                         // Fetch AI Locals
                         if (userId) {
                             import('../services/chatService').then(({ chatService }) => {
@@ -414,7 +419,13 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                 {isProfileOpen && (
                     <ProfileModal
                         isOpen={isProfileOpen}
-                        onClose={() => !lockdownMode && setIsProfileOpen(false)}
+                        onClose={() => {
+                            if (!lockdownMode) {
+                                setIsProfileOpen(false);
+                                setViewingProfileId(null);
+                            }
+                        }}
+                        targetUserId={viewingProfileId || undefined}
                         userEmail={userEmail}
                         lockdownMode={lockdownMode}
                     />
@@ -425,7 +436,14 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
             {
                 isRealFriendsOpen && (
                     <div className="absolute top-0 right-0 w-full h-full md:w-[24rem] z-50 pointer-events-auto animate-in slide-in-from-right duration-300 bg-[#0a0a0a] border-l border-white/10 shadow-2xl">
-                        <RealUsersList onClose={() => setIsRealFriendsOpen(false)} />
+                        <RealUsersList
+                            onClose={() => setIsRealFriendsOpen(false)}
+                            onUserSelect={(userId) => {
+                                setViewingProfileId(userId);
+                                setIsProfileOpen(true);
+                                setIsRealFriendsOpen(false);
+                            }}
+                        />
                     </div>
                 )
             }

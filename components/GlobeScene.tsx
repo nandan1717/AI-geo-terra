@@ -14,15 +14,17 @@ interface SceneProps {
 
 const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selectedMarker, onMarkerClick, isPaused, markerColor = [1, 0.5, 0.1] }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const pointerInteracting = useRef<any>(null);
-  const pointerInteractionMovement = useRef(0);
-  const rotationOffset = useRef(0); // Accumulates auto-rotation
+  const pointerInteracting = useRef<{ x: number, y: number } | null>(null);
+  const pointerInteractionMovement = useRef({ x: 0, y: 0 });
+  const pinchDist = useRef<number | null>(null);
+  const rotationOffset = useRef({ phi: 0, theta: 0 }); // Accumulates rotation
   const globeInstance = useRef<any>(null);
+  const isMobile = useRef(false);
 
   const [{ phi, theta, scale }, api] = useSpring(() => ({
     phi: 0,
     theta: 0.3,
-    scale: 1.1,
+    scale: window.innerWidth < 768 ? 0.75 : 1.1,
     config: { mass: 1, tension: 280, friction: 60 },
   }));
 
@@ -32,17 +34,13 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
       const targetPhi = (lng * Math.PI) / 180;
       const targetTheta = ((90 - lat) * Math.PI) / 180;
 
-      // Adjust target phi to account for current rotation offset
-      // visualPhi = springPhi + offset
-      // targetVisualPhi = newSpringPhi + offset
-      // => newSpringPhi = targetVisualPhi - offset
-
-      const adjustedPhi = targetPhi - rotationOffset.current;
+      const adjustedPhi = targetPhi - rotationOffset.current.phi;
+      const adjustedTheta = targetTheta - rotationOffset.current.theta;
 
       api.start({
         phi: adjustedPhi,
-        theta: targetTheta,
-        scale: 1.5,
+        theta: adjustedTheta,
+        scale: isMobile.current ? 1.3 : 1.5,
       });
     },
     zoomIn: () => {
@@ -68,6 +66,7 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
       if (canvasRef.current) {
         width = canvasRef.current.offsetWidth;
         height = canvasRef.current.offsetHeight;
+        isMobile.current = window.innerWidth < 768;
       }
     };
     window.addEventListener('resize', onResize);
@@ -109,7 +108,7 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
       onRender: (state) => {
         // Auto-rotation logic
         if (!pointerInteracting.current && !isPaused) {
-          rotationOffset.current += 0.003;
+          rotationOffset.current.phi += 0.003;
         }
 
         // Living Atoms: Breathing Effect
@@ -127,8 +126,8 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
         }
 
         // Combine spring physics with manual rotation/auto-rotation offset
-        state.phi = phi.get() + pointerInteractionMovement.current + rotationOffset.current;
-        state.theta = theta.get();
+        state.phi = phi.get() + pointerInteractionMovement.current.x + rotationOffset.current.phi;
+        state.theta = theta.get() + pointerInteractionMovement.current.y + rotationOffset.current.theta;
         state.scale = scale.get();
 
         state.width = width * 2;
@@ -158,37 +157,61 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
     }, 1000);
   };
 
-  const bindHelper = (e: any) => {
-    pointerInteracting.current = e.clientX - pointerInteractionMovement.current;
+  const bindHelper = (x: number, y: number, e?: any) => {
+    pointerInteracting.current = { x: x - pointerInteractionMovement.current.x, y: y - pointerInteractionMovement.current.y };
     if (canvasRef.current) canvasRef.current.style.cursor = 'grabbing';
-    addRipple(e);
+    if (e && e.pointerType !== 'touch') addRipple(e);
   };
 
-  const contentHelper = (e: any) => {
+  const contentHelper = () => {
     pointerInteracting.current = null;
     if (canvasRef.current) canvasRef.current.style.cursor = 'grab';
 
-    const delta = pointerInteractionMovement.current;
-    rotationOffset.current += delta;
-    pointerInteractionMovement.current = 0;
+    rotationOffset.current.phi += pointerInteractionMovement.current.x;
+    rotationOffset.current.theta += pointerInteractionMovement.current.y;
+    pointerInteractionMovement.current = { x: 0, y: 0 };
+    pinchDist.current = null;
   };
 
-  const moveHelper = (e: any) => {
+  const moveHelper = (x: number, y: number) => {
     if (pointerInteracting.current !== null) {
-      const delta = e.clientX - pointerInteracting.current;
-      pointerInteractionMovement.current = delta * 0.005;
+      const deltaX = x - pointerInteracting.current.x;
+      const deltaY = y - pointerInteracting.current.y;
+      pointerInteractionMovement.current = {
+        x: deltaX * 0.005,
+        y: Math.max(-0.8, Math.min(0.8, deltaY * 0.005)) // Bound vertical rotation
+      };
     }
   };
 
   return (
     <div
       className="w-full h-full flex items-center justify-center bg-black overflow-hidden relative"
-      onPointerDown={bindHelper}
+      onPointerDown={(e) => bindHelper(e.clientX, e.clientY, e)}
       onPointerUp={contentHelper}
       onPointerOut={contentHelper}
-      onMouseMove={moveHelper}
-      onTouchStart={(e) => bindHelper(e.touches[0])}
-      onTouchMove={(e) => moveHelper(e.touches[0])}
+      onMouseMove={(e) => moveHelper(e.clientX, e.clientY)}
+      onTouchStart={(e) => {
+        if (e.touches.length === 1) {
+          bindHelper(e.touches[0].clientX, e.touches[0].clientY);
+        } else if (e.touches.length === 2) {
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          pinchDist.current = Math.sqrt(dx * dx + dy * dy);
+        }
+      }}
+      onTouchMove={(e) => {
+        if (e.touches.length === 1) {
+          moveHelper(e.touches[0].clientX, e.touches[0].clientY);
+        } else if (e.touches.length === 2 && pinchDist.current !== null) {
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const delta = (dist - pinchDist.current) * 0.01;
+          api.start({ scale: Math.max(0.5, Math.min(2.5, scale.get() + delta)) });
+          pinchDist.current = dist;
+        }
+      }}
       onTouchEnd={contentHelper}
     >
       <div
@@ -201,7 +224,20 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
 
       <canvas
         ref={canvasRef}
-        style={{ width: '100%', height: '100%', contain: 'layout paint size', opacity: 0, transition: 'opacity 1s ease', position: 'relative', zIndex: 10 }}
+        style={{
+          width: '90vw',
+          height: '90vw',
+          contain: 'layout paint size',
+          opacity: 0,
+          transition: 'opacity 1s ease',
+          position: 'absolute',
+          zIndex: 10,
+          left: '50%',
+          top: '50%',
+          transform: 'translate(-50%, -50%)',
+          maxWidth: '90vw',
+          maxHeight: '90vh'
+        }}
         onContextMenu={(e) => e.preventDefault()}
       />
 
