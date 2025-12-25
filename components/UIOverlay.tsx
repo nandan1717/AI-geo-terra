@@ -11,6 +11,8 @@ const ProfileModal = React.lazy(() => import('./ProfileModal'));
 import AILocalsList from './AILocalsList';
 import RealUsersList from './RealUsersList';
 import { supabase } from '../supabaseClient';
+import NewsFeed from './NewsFeed';
+import { useNews } from '../context/NewsContext';
 
 
 
@@ -67,6 +69,7 @@ interface UIOverlayProps {
     onPermissionGranted: (token: string) => void;
     onPermissionDismiss: () => void;
     lockdownMode?: boolean;
+
 }
 
 const HistoryList: React.FC<{ onResume: (id: string, p: LocalPersona, l: LocationMarker) => void, onClose: () => void }> = ({ onResume, onClose }) => {
@@ -217,8 +220,9 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
     onPermissionGranted,
     onPermissionDismiss,
     lockdownMode = false,
-    onChatToggle
+    onChatToggle,
 }) => {
+    const { isNewsFeedOpen, toggleNewsFeed } = useNews();
     const [inputValue, setInputValue] = useState('');
     const [chatInput, setChatInput] = useState('');
     const [isMobile, setIsMobile] = useState(false);
@@ -356,70 +360,99 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
 
             {/* --- SIDEBAR --- */}
             {/* Hide Sidebar if any panel is open to prevent overlap */}
-            {!(isProfileOpen || isNotificationPanelOpen || isSettingsPanelOpen || isAddFriendsOpen || isRealFriendsOpen) && (
-                <Sidebar
-                    onProfileClick={() => {
-                        setViewingProfileId(null);
-                        setIsProfileOpen(true);
-                    }}
-                    onChatsClick={() => { // Old "Add Friends" is now Chats
-                        setIsAddFriendsOpen(true);
-                        setIsNotificationPanelOpen(false);
-                        setIsSettingsPanelOpen(false);
-                        setIsRealFriendsOpen(false);
-                        setViewingProfileId(null);
-                        // Fetch AI Locals
-                        if (userId) {
-                            import('../services/chatService').then(({ chatService }) => {
-                                chatService.getRecentSessions('').then(sessions => {
-                                    // Filter unique personas from sessions
-                                    const uniqueLocalsMap = new Map();
-                                    sessions.forEach(s => {
-                                        if (!uniqueLocalsMap.has(s.persona_name)) {
-                                            uniqueLocalsMap.set(s.persona_name, {
-                                                persona_name: s.persona_name,
-                                                persona_occupation: s.persona_data.occupation,
-                                                persona_image_url: s.persona_image_url,
-                                                location_name: s.location_name,
-                                                // Extra data for resuming chat
-                                                id: s.id,
-                                                persona_data: s.persona_data,
-                                                location_lat: s.location_lat,
-                                                location_lng: s.location_lng
-                                            });
-                                        }
+            {!(isProfileOpen || isNotificationPanelOpen || isSettingsPanelOpen || isAddFriendsOpen || isRealFriendsOpen || isNewsFeedOpen) && (
+                <>
+                    <Sidebar
+                        onProfileClick={() => {
+                            setViewingProfileId(null);
+                            setIsProfileOpen(true);
+                        }}
+                        onChatsClick={() => { // Old "Add Friends" is now Chats
+                            setIsAddFriendsOpen(true);
+                            setIsNotificationPanelOpen(false);
+                            setIsSettingsPanelOpen(false);
+                            setIsRealFriendsOpen(false);
+                            setViewingProfileId(null);
+                            // Fetch AI Locals
+                            if (userId) {
+                                import('../services/chatService').then(({ chatService }) => {
+                                    chatService.getRecentSessions('').then(sessions => {
+                                        // Filter unique personas from sessions
+                                        const uniqueLocalsMap = new Map();
+                                        sessions.forEach(s => {
+                                            if (!uniqueLocalsMap.has(s.persona_name)) {
+                                                uniqueLocalsMap.set(s.persona_name, {
+                                                    persona_name: s.persona_name,
+                                                    persona_occupation: s.persona_data.occupation,
+                                                    persona_image_url: s.persona_image_url,
+                                                    location_name: s.location_name,
+                                                    // Extra data for resuming chat
+                                                    id: s.id,
+                                                    persona_data: s.persona_data,
+                                                    location_lat: s.location_lat,
+                                                    location_lng: s.location_lng
+                                                });
+                                            }
+                                        });
+                                        setAiLocals(Array.from(uniqueLocalsMap.values()));
                                     });
-                                    setAiLocals(Array.from(uniqueLocalsMap.values()));
                                 });
-                            });
-                        }
-                    }}
-                    onRealFriendsClick={() => { // New Real Friends
-                        setIsRealFriendsOpen(true);
-                        setIsAddFriendsOpen(false);
-                        setIsNotificationPanelOpen(false);
-                        setIsSettingsPanelOpen(false);
-                        setIsProfileOpen(false);
-                    }}
-                    onNotificationsClick={() => {
-                        setIsNotificationPanelOpen(!isNotificationPanelOpen);
-                        setIsSettingsPanelOpen(false);
-                        setIsAddFriendsOpen(false);
-                        setIsRealFriendsOpen(false);
-                    }}
-                    onSettingsClick={() => {
-                        setIsSettingsPanelOpen(!isSettingsPanelOpen);
-                        setIsNotificationPanelOpen(false);
-                        setIsAddFriendsOpen(false); // Close AI Chats
-                        setIsRealFriendsOpen(false);
-                    }}
-                    unreadNotifications={notifications.filter(n => !n.read).length}
-                    profileId="step-3-profile"
-                    chatsId="step-4-add-friends" // Keeping ID for tutorial
-                    addFriendsId="real-friends-btn"
-                    notificationsId="notification-btn"
-                    settingsId="settings-btn"
-                />
+                            }
+                        }}
+                        onRealFriendsClick={() => { // New Real Friends
+                            setIsRealFriendsOpen(true);
+                            setIsAddFriendsOpen(false);
+                            setIsNotificationPanelOpen(false);
+                            setIsSettingsPanelOpen(false);
+                            setIsProfileOpen(false);
+                        }}
+                        onNotificationsClick={() => {
+                            setIsNotificationPanelOpen(!isNotificationPanelOpen);
+                            setIsSettingsPanelOpen(false);
+                            setIsAddFriendsOpen(false);
+                            setIsRealFriendsOpen(false);
+                        }}
+                        onSettingsClick={() => {
+                            setIsSettingsPanelOpen(!isSettingsPanelOpen);
+                            setIsNotificationPanelOpen(false);
+                            setIsAddFriendsOpen(false); // Close AI Chats
+                            setIsRealFriendsOpen(false);
+                        }}
+                        unreadNotifications={notifications.filter(n => !n.read).length}
+                        profileId="step-3-profile"
+                        chatsId="step-4-add-friends" // Keeping ID for tutorial
+                        addFriendsId="real-friends-btn"
+                        notificationsId="notification-btn"
+                        settingsId="settings-btn"
+
+                    // Injecting News Toggle into Sidebar props requires Sidebar update or ad-hoc button
+                    // Since Sidebar is a separate component, let's look at adding it there or just placing a floating button
+                    // Let's place a floating button for "Global Intel" if Sidebar doesn't support generic children easily
+                    // But wait, the plan implies integrating it properly. 
+                    // Let's check Sidebar later. For now, let's put a dedicated button in the top left or modify Sidebar.
+                    // Actually, let's add it to Sidebar props in a separate tool call if needed. 
+                    // For now, I'll add a separate floating toggle button below the Sidebar if needed, or pass it if Sidebar accepts children.
+                    // Checking Sidebar usage above... it seems rigid.
+                    // Let's add a floating toggle for now to avoid breaking Sidebar interface immediately, 
+                    // OR better, render a dedicated button for News in the top-left cluster if possible?
+                    // No, sidebar is the place.
+                    // Let's add an extra prop to Sidebar "extraItem" or just render a button near it.
+                    />
+
+                    {/* GLOBAL INTEL TOGGLE (Separate from Sidebar for now to ensure visibility/isolation) */}
+                    {!isNewsFeedOpen && !lockdownMode && (
+                        <button
+                            onClick={toggleNewsFeed}
+                            className="absolute left-2 md:left-6 top-[280px] md:top-[340px] z-[60] w-10 h-10 md:w-12 md:h-12 bg-black/60 backdrop-blur-xl border border-white/10 rounded-xl flex items-center justify-center text-gray-400 hover:text-white hover:bg-blue-600/20 hover:border-blue-500/50 transition-all shadow-lg group pointer-events-auto"
+                            title="Global Intel Feed"
+                        >
+                            <Globe size={20} className="group-hover:animate-spin-slow" />
+                            <div className="absolute left-full ml-3 px-2 py-1 bg-black/80 border border-white/10 rounded-md text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                Global Intel
+                            </div>
+                        </button>
+                    )}
+                </>
             )}
 
             {/* PROFILE MODAL */}
@@ -528,7 +561,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
 
             {/* --- SCANNING POPUP (Near Search Bar) --- */}
             {
-                isLoadingCrowd && !isCustomSearching && !lockdownMode && (
+                isLoadingCrowd && !isCustomSearching && !lockdownMode && !isNewsFeedOpen && (
                     <div className="absolute top-36 left-4 right-4 md:top-24 md:left-8 md:right-auto md:w-auto z-50 pointer-events-none animate-in fade-in slide-in-from-top-4 duration-300 flex justify-center md:justify-start">
                         <div className="bg-black/80 backdrop-blur-xl border border-blue-500/30 rounded-2xl py-3 px-5 shadow-[0_0_20px_rgba(59,130,246,0.2)] flex items-center gap-4 max-w-sm">
                             <div className="relative flex-shrink-0">
@@ -552,7 +585,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
 
             {/* --- 1. TOP NAVIGATION --- */}
             {
-                !lockdownMode && (
+                !lockdownMode && !isNewsFeedOpen && (
                     <div className="absolute top-0 left-0 w-full z-30 p-4 pt-16 md:pt-6 flex flex-col gap-3 transition-all duration-300 pointer-events-none">
                         <div className="flex items-start gap-3 w-full max-w-5xl mx-auto md:mx-0 pointer-events-auto">
                             <div id="search-bar" className="flex-1 max-w-[85%] md:max-w-[28rem] shadow-2xl relative mx-auto md:mx-0">
@@ -616,58 +649,8 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                 )
             }
 
-            {/* --- 2. GPS & ZOOM FAB (Bottom Right Horizontal - Consolidated) --- */}
-            {
-                !showCrowdSelection && !lockdownMode && (
-                    <div className={`absolute right-24 z-20 pointer-events-auto flex flex-col gap-3 transition-all duration-300 bottom-8`}>
+            {/* --- 2. GPS & ZOOM FAB REMOVED as per user request --- */}
 
-                        {/* Unified Navigation Bar */}
-                        <div className="flex items-center gap-1 bg-black/60 backdrop-blur-xl border border-white/20 rounded-full overflow-hidden shadow-lg p-1">
-
-                            {/* Zoom Group */}
-                            <button
-                                onClick={onZoomOut}
-                                className="w-10 h-10 flex items-center justify-center text-white hover:bg-white/10 transition-colors rounded-full active:bg-white/20"
-                                title="Zoom Out"
-                            >
-                                <Minus size={20} />
-                            </button>
-                            <button
-                                onClick={onZoomIn}
-                                className="w-10 h-10 flex items-center justify-center text-white hover:bg-white/10 transition-colors rounded-full active:bg-white/20"
-                                title="Zoom In"
-                            >
-                                <Plus size={20} />
-                            </button>
-
-                            {/* Separator */}
-                            <div className="w-[1px] h-6 bg-white/10 mx-1"></div>
-
-                            {/* Locate */}
-                            <button
-                                id="locate-btn"
-                                onClick={onUseCurrentLocation}
-                                className="w-10 h-10 flex items-center justify-center text-white hover:bg-blue-600/20 hover:text-blue-400 transition-colors rounded-full active:bg-white/20"
-                                title="Locate Me"
-                            >
-                                <Crosshair size={20} />
-                            </button>
-
-                            {/* Separator */}
-                            <div className="w-[1px] h-6 bg-white/10 mx-1"></div>
-
-                            {/* Reset */}
-                            <button
-                                onClick={onResetView}
-                                className="w-10 h-10 flex items-center justify-center text-white hover:bg-white/10 transition-colors rounded-full active:bg-white/20"
-                                title="Reset View"
-                            >
-                                <Navigation size={20} className="rotate-45" />
-                            </button>
-                        </div>
-                    </div>
-                )
-            }
 
             {/* --- 3. RESULTS --- */}
             {
@@ -723,11 +706,164 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
             {/* --- 4. MARKER DETAILS / POST CARD --- */}
             {
                 showMarkerSheet && !isLoadingCrowd && (
-                    <div className="absolute bottom-0 left-0 w-full md:bottom-8 md:right-8 md:left-auto md:w-[24rem] z-20 pointer-events-auto animate-in slide-in-from-bottom-full duration-500 ease-out">
-                        <div className="bg-[#0a0a0a] md:bg-black/80 backdrop-blur-2xl rounded-t-3xl md:rounded-3xl border-t md:border border-white/10 shadow-2xl overflow-hidden">
+                    <div className={`z-20 pointer-events-auto animate-in duration-300 ease-out ${selectedMarker.type === 'Event'
+                        ? 'fixed inset-0 z-[100] fade-in'
+                        : 'absolute bottom-0 left-0 w-full md:bottom-8 md:right-8 md:left-auto md:w-[24rem] slide-in-from-bottom-full'
+                        }`}>
+                        <div className={`overflow-hidden h-full ${selectedMarker.type === 'Event'
+                            ? 'bg-[#0a0a0a]'
+                            : 'bg-[#0a0a0a] md:bg-black/80 backdrop-blur-2xl rounded-t-3xl md:rounded-3xl border-t md:border border-white/10 shadow-2xl h-auto'
+                            }`}>
 
-                            {/* USER POST CARD VIEW */}
-                            {selectedMarker.isUserPost ? (
+                            {/* NEWS EVENT CARD VIEW */}
+                            {selectedMarker.type === 'Event' ? (
+                                (() => {
+                                    // Find index in newsEvents for navigation
+                                    const currentIndex = newsEvents.findIndex(e => e.id === selectedMarker.id);
+                                    const hasNext = currentIndex !== -1 && currentIndex < newsEvents.length - 1;
+                                    const hasPrev = currentIndex !== -1 && currentIndex > 0;
+
+                                    const handleNavigate = (direction: 'next' | 'prev') => {
+                                        if (currentIndex === -1) return;
+                                        const newIndex = direction === 'next' ? currentIndex + 1 : currentIndex - 1;
+                                        if (newsEvents[newIndex]) {
+                                            onSelectMarker(newsEvents[newIndex]);
+                                        }
+                                    };
+
+                                    return (
+                                        <div className="w-full h-full flex flex-col relative">
+                                            {/* 1. IMAGE CAROUSEL (Revised: Fixed Height) */}
+                                            <div className="relative w-full h-64 md:h-80 shrink-0 bg-black group-image">
+                                                {selectedMarker.postImageUrl ? (
+                                                    <img src={selectedMarker.postImageUrl} alt={selectedMarker.name} className="w-full h-full object-cover transition-transform hover:scale-105 duration-700" />
+                                                ) : (
+                                                    <div className={`w-full h-full bg-[conic-gradient(at_top_right,_var(--tw-gradient-stops))] ${selectedMarker.category === 'Conflict' ? 'from-orange-900 via-red-900 to-black' :
+                                                        selectedMarker.category === 'Environmental' ? 'from-emerald-900 via-green-900 to-black' :
+                                                            'from-blue-900 via-slate-900 to-black'
+                                                        } opacity-80`}></div>
+                                                )}
+
+                                                <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-black/20 to-transparent"></div>
+
+                                                {/* Category Badge */}
+                                                <div className="absolute top-4 left-4">
+                                                    <span className={`px-3 py-1 rounded-full text-[10px] font-bold tracking-widest uppercase border backdrop-blur-md shadow-lg ${selectedMarker.category === 'Conflict' ? 'bg-orange-500/20 text-orange-200 border-orange-500/30' :
+                                                        selectedMarker.category === 'Environmental' ? 'bg-emerald-500/20 text-emerald-200 border-emerald-500/30' :
+                                                            'bg-blue-500/20 text-blue-200 border-blue-500/30'
+                                                        }`}>
+                                                        {selectedMarker.category}
+                                                    </span>
+                                                </div>
+
+                                                <button
+                                                    onClick={onCloseMarker}
+                                                    className="absolute top-4 right-4 p-3 bg-black/40 hover:bg-black/60 rounded-full text-white transition-colors backdrop-blur-md z-20"
+                                                >
+                                                    <X size={24} />
+                                                </button>
+
+                                                {/* Swipe Indicators (Mock) */}
+                                                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-10">
+                                                    <div className="w-2 h-2 rounded-full bg-white shadow-sm"></div>
+                                                    <div className="w-2 h-2 rounded-full bg-white/30 shadow-sm"></div>
+                                                    <div className="w-2 h-2 rounded-full bg-white/30 shadow-sm"></div>
+                                                </div>
+                                            </div>
+
+                                            {/* Content */}
+                                            <div className="flex-1 p-6 pt-2 flex flex-col relative overflow-hidden">
+                                                {/* Headlines & Source */}
+                                                <div className="shrink-0 mb-4">
+                                                    <h2 className="text-xl md:text-2xl font-bold text-white leading-snug mb-2 line-clamp-3">
+                                                        {selectedMarker.name}
+                                                    </h2>
+
+                                                    <div className="flex items-center flex-wrap gap-2 text-[10px] md:text-xs text-gray-400 font-mono uppercase tracking-wide border-b border-white/5 pb-3">
+                                                        {selectedMarker.sourceUrl && (
+                                                            <span className="text-blue-300 font-bold bg-blue-900/30 px-2 py-0.5 rounded border border-blue-500/20">
+                                                                {new URL(selectedMarker.sourceUrl).hostname.replace('www.', '')}
+                                                            </span>
+                                                        )}
+                                                        <span className="text-gray-600">•</span>
+                                                        <span>
+                                                            {(() => {
+                                                                if (!selectedMarker.publishedAt) return 'LIVE';
+                                                                try {
+                                                                    const date = new Date(selectedMarker.publishedAt);
+                                                                    const now = new Date();
+                                                                    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+                                                                    if (diffInSeconds < 60) return `${diffInSeconds}s ago`;
+                                                                    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+                                                                    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+                                                                    return `${Math.floor(diffInSeconds / 86400)}d ago`;
+                                                                } catch (e) {
+                                                                    return 'LIVE';
+                                                                }
+                                                            })()}
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Description & Location */}
+                                                <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 pr-2 mb-4">
+                                                    <p className="text-base md:text-lg text-gray-300 leading-relaxed font-light whitespace-pre-line">
+                                                        {selectedMarker.description}
+                                                    </p>
+
+                                                    <div className="mt-6 flex items-center gap-2 text-sm text-gray-500 bg-white/5 p-3 rounded-lg w-fit">
+                                                        <MapPin size={16} className="text-blue-500" />
+                                                        <span>
+                                                            {selectedMarker.region ? `${selectedMarker.region}, ` : ''}
+                                                            {selectedMarker.country || 'International Context'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Footer Buttons */}
+                                                <div className="shrink-0 pt-2 border-t border-white/10 space-y-3">
+                                                    <a
+                                                        href={selectedMarker.sourceUrl}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="block w-full text-center py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold text-sm transition-colors shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2"
+                                                    >
+                                                        Read Full Article <Globe size={14} className="opacity-70" />
+                                                    </a>
+
+                                                    <div className="text-[10px] text-gray-500 text-center font-mono mt-2 opacity-60">
+                                                        Data provided by the GDELT Project (<a href="https://www.gdeltproject.org/" target="_blank" rel="noopener noreferrer" className="hover:text-blue-400 transition-colors">https://www.gdeltproject.org/</a>)
+                                                    </div>
+                                                </div>
+
+                                                {/* Navigation / Swipe Controls */}
+                                                {currentIndex !== -1 && (
+                                                    <div className="mt-4 pt-3 border-t border-white/5 flex items-center justify-between shrink-0">
+                                                        <button
+                                                            onClick={() => handleNavigate('prev')}
+                                                            disabled={!hasPrev}
+                                                            className="p-3 rounded-xl bg-white/5 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all text-white flex items-center gap-2 text-xs font-medium"
+                                                        >
+                                                            <ChevronLeft size={16} /> Prev
+                                                        </button>
+                                                        <span className="text-[10px] text-gray-500 font-mono">
+                                                            {currentIndex + 1} / {newsEvents.length}
+                                                        </span>
+                                                        <button
+                                                            onClick={() => handleNavigate('next')}
+                                                            disabled={!hasNext}
+                                                            className="p-3 rounded-xl bg-white/5 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all text-white flex items-center gap-2 text-xs font-medium"
+                                                        >
+                                                            Next <ChevronLeft size={16} className="rotate-180" />
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })()
+                            ) : selectedMarker.isUserPost ? (
                                 <>
                                     <div className="relative h-48 bg-black">
                                         {selectedMarker.postImageUrl ? (
@@ -1123,6 +1259,13 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                     </>
                 )
             }
+            {/* NEWS FEED OVERLAY */}
+            <NewsFeed
+                onEventClick={(event) => {
+                    onSelectMarker(event);
+                    toggleNewsFeed(); // Close feed to show event on globe
+                }}
+            />
         </div>
     );
 };

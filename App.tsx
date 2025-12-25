@@ -1,7 +1,9 @@
-import React, { useState, useCallback, useRef, useEffect, Suspense } from 'react';
+import React, { useState, useCallback, useRef, useEffect, Suspense, useMemo } from 'react';
 // Lazy load the heavy 3D component
 const GlobeScene = React.lazy(() => import('./components/GlobeScene'));
 import UIOverlay from './components/UIOverlay';
+import { useNews } from './context/NewsContext';
+
 import Auth from './components/Auth';
 import TutorialOverlay, { TutorialStep } from './components/TutorialOverlay';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -27,6 +29,35 @@ const App: React.FC = () => {
   // Crowd State
   const [crowd, setCrowd] = useState<LocalPersona[]>([]); // Changed type from Persona[] to LocalPersona[]
   const [isLoadingCrowd, setIsLoadingCrowd] = useState(false); // Renamed from isScanning
+
+  // GDELT News State handled by Context
+  const { newsEvents, isNewsFeedOpen, toggleNewsFeed } = useNews();
+
+  // Patrol Logic - previously tied to NewsFeed, now purely visual or removed? 
+  // User guide says "NewsFeed" is "Reels style". 
+  // Let's remove App-side patrol for now as NewsFeed has its own scroll interaction.
+  // But wait, "Auto Patrol" on the globe was a feature. 
+  // If we want to keep "Patrol Mode" on the globe while the feed is open, we need to handle it.
+  // However, with "Reels" overlay covering the screen, the globe is hidden!
+  // So Patrol on Globe is useless if Feed is non-transparent full screen.
+  // The Feed IS full screen (fixed inset-0 bg-black/90).
+  // So we don't need globe patrol when feed is open.
+  // We can remove patrol logic from App.
+
+  // const [isPatrolMode, setIsPatrolMode] = useState(false); // Removing this
+
+
+  const combinedMarkers = useMemo(() => {
+    return [...markers, ...(isNewsFeedOpen ? newsEvents : [])];
+  }, [markers, isNewsFeedOpen, newsEvents]);
+
+  useEffect(() => {
+    // Set Single Color for News Mode if active
+    if (isNewsFeedOpen) {
+      setMarkerColor([1, 0.8, 0]); // Golden Pulse
+    }
+  }, [isNewsFeedOpen]);
+
 
   // Persona/Chat State
   const [persona, setPersona] = useState<LocalPersona | null>(null); // Changed type from Persona to LocalPersona
@@ -345,6 +376,9 @@ const App: React.FC = () => {
     setLastPersona(null); // Clear last persona on new search
     setLastChatHistory([]); // Clear last chat history on new search
 
+    // Disable News Feed on Search
+    if (isNewsFeedOpen) toggleNewsFeed();
+
     try {
       const locations = await fetchLocationsFromQuery(query);
 
@@ -390,7 +424,7 @@ const App: React.FC = () => {
   }, []);
 
   const handleClearResults = useCallback(() => {
-    setMarkers([]);
+    setMarkers(userMarkers); // Revert to user markers instead of empty
     setSearchState({ isLoading: false, error: null, query: '' });
     setSelectedMarker(null);
     setPersona(null);
@@ -398,7 +432,8 @@ const App: React.FC = () => {
     setCrowd([]);
     setLastPersona(null);
     setLastChatHistory([]);
-  }, []);
+    setMarkerColor([0.2, 0.8, 1]); // Reset color
+  }, [userMarkers]);
 
   const handleUseCurrentLocation = useCallback(() => {
     if (!navigator.geolocation) {
@@ -441,6 +476,9 @@ const App: React.FC = () => {
     if (globeRef.current) {
       globeRef.current.flyTo(marker.latitude, marker.longitude);
     }
+
+    // Don't fetch crowd for News Events
+    if (marker.type === 'Event') return;
 
     setIsLoadingCrowd(true);
     try {
@@ -644,7 +682,7 @@ const App: React.FC = () => {
           <Suspense fallback={<div className="w-full h-full bg-black flex items-center justify-center text-white">Initializing Planetary Systems...</div>}>
             <GlobeScene
               ref={globeRef}
-              markers={markers}
+              markers={combinedMarkers}
               selectedMarker={selectedMarker}
               onMarkerClick={handleMarkerClick}
               isPaused={!!selectedMarker}
@@ -700,6 +738,7 @@ const App: React.FC = () => {
           showPermissionCard={showPermissionCard}
           onPermissionGranted={handlePermissionGranted}
           onPermissionDismiss={handlePermissionDismiss}
+
         />
 
         <TutorialOverlay

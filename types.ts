@@ -5,12 +5,18 @@ export interface LocationMarker {
   latitude: number;
   longitude: number;
   description: string;
-  type?: 'Country' | 'State' | 'City' | 'Place' | 'Business' | 'Landmark' | 'Post';
+  type?: 'Country' | 'State' | 'City' | 'Place' | 'Business' | 'Landmark' | 'Post' | 'Event'; // Added 'Event'
   timezone?: string;
   country?: string;
   region?: string;
   googleMapsUri?: string;
   geojson?: any;
+
+  // News Event Data
+  sourceUrl?: string; // For linking to the news article
+  publishedAt?: string; // ISO or GDELT date string
+  category?: 'Environmental' | 'Development' | 'Conflict' | 'General';
+  markerColor?: [number, number, number]; // RGB tuple [0-1, 0-1, 0-1] for Cobe or CSS
 
   // User Post Data
   isUserPost?: boolean;
