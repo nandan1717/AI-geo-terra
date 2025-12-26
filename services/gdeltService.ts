@@ -62,6 +62,16 @@ const parseGdeltDate = (dateStr: string | undefined): string | undefined => {
     return new Date(`${y}-${m}-${d}T${h}:${min}:${s}Z`).toISOString();
   }
 
+  // 3. "YYYYMMDDHHMM" (Compact without seconds - sometimes seen)
+  if (dateStr.match(/^\d{12}$/)) {
+    const y = dateStr.substring(0, 4);
+    const m = dateStr.substring(4, 6);
+    const d = dateStr.substring(6, 8);
+    const h = dateStr.substring(8, 10);
+    const min = dateStr.substring(10, 12);
+    return new Date(`${y}-${m}-${d}T${h}:${min}:00Z`).toISOString();
+  }
+
   // 3. Try standard parser
   try {
     const d = new Date(dateStr);
@@ -85,11 +95,45 @@ const decodeHtmlEntities = (text: string | null | undefined): string => {
     .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec));
 };
 
-export const fetchGlobalEvents = async (limit: number = 60): Promise<LocationMarker[]> => {
+// Basic Vibe Definition
+type VibeType = 'High Energy' | 'Chill' | 'Inspiration' | 'Intense' | 'Trending';
+
+export const fetchGlobalEvents = async (limit: number = 60, vibe: VibeType = 'Trending'): Promise<LocationMarker[]> => {
   try {
-    // 1. Fetch Geo 2.0 Data (For Coordinates & Initial Location Name)
-    // We fetch a larger batch (e.g. 60) to allow for client-side pagination/buffering
-    const response = await fetch(`https://api.gdeltproject.org/api/v2/geo/geo?query=sourcelang:eng&mode=PointData&format=geojson&timespan=24h&maxrows=${limit}`);
+    // Construct Query based on Vibe
+    // We try to exclude hard news (politics, military) and focus on cultural/emotional signals.
+    let query = 'sourcelang:eng';
+
+    // Base Filter: Exclude Boring/Hard Stuff
+    const baseExclusions = '-theme:POLITICS -theme:MILITARY -theme:GOVERNMENT -theme:TAX_FNCACT -theme:LEGISLATION';
+
+    switch (vibe) {
+      case 'High Energy':
+        // Keywords: Sport, Music, Festivals, Entertainment
+        // "theme:SPORT" can be hit or miss, keywords are safer for "Vibe"
+        query += ` (sport OR festival OR concert OR music OR premiere OR "red carpet" OR celebrity) ${baseExclusions}`;
+        break;
+      case 'Chill':
+        // Keywords: Travel, Art, Nature
+        query += ` (travel OR vacation OR beach OR park OR museum OR "art gallery" OR hiking OR nature) ${baseExclusions}`;
+        break;
+      case 'Inspiration':
+        // Innovation, Education, Science (Working, keeping mostly same but adding keywords for safety)
+        query += ` (theme:EDUCATION OR theme:SCIENCE OR theme:INNOVATION OR theme:CHARITY OR breakthrough OR discovery) ${baseExclusions}`;
+        break;
+      case 'Intense':
+        // High visibility society/media events (Working)
+        query += ` (theme:SOCIETY OR theme:MEDIA_MSM OR theme:CRISISLEX OR protest OR rally) ${baseExclusions}`;
+        break;
+      case 'Trending':
+      default:
+        // Broad Keywords for general interest
+        query += ` (technology OR culture OR fashion OR movie OR viral OR film OR social) ${baseExclusions}`;
+        break;
+    }
+
+    // 1. Fetch Geo 2.0 Data with custom query
+    const response = await fetch(`https://api.gdeltproject.org/api/v2/geo/geo?query=${encodeURIComponent(query)}&mode=PointData&format=geojson&timespan=3d&maxrows=${limit}`);
 
     if (!response.ok) {
       throw new Error(`GDELT API error: ${response.statusText}`);
@@ -108,9 +152,10 @@ export const fetchGlobalEvents = async (limit: number = 60): Promise<LocationMar
       // Location Name logic
       const locationName = props.name || props.cityname || props.adm1name || props.countryname || '';
 
-      let title = 'Breaking News';
+      let title = 'Recent Story';
       let url = props.url || '';
 
+      // Clean HTML Title
       if (props.html) {
         const linkMatch = props.html.match(/<a href="([^"]+)"[^>]*>(.*?)<\/a>/);
         if (linkMatch) {
@@ -121,114 +166,107 @@ export const fetchGlobalEvents = async (limit: number = 60): Promise<LocationMar
         }
       }
 
-      // Categorization
-      const lowerTitle = title.toLowerCase();
-      let category: LocationMarker['category'] = 'General';
-      let markerColor: [number, number, number] = [0.2, 0.4, 1.0];
+      // Simple pseudo-sentiment just to populate the field (GDELT GeoJSON doesn't send raw tone score in properties usually, 
+      // but we filtered by it so we know the range).
+      // We can randomize slightly for UI visualization if needed or set based on Vibe.
+      let sentiment = 0;
+      if (vibe === 'High Energy') sentiment = 7;
+      if (vibe === 'Inspiration') sentiment = 8;
+      if (vibe === 'Chill') sentiment = 5;
 
-      if (lowerTitle.match(/climate|environment|pollution|forest|ecology|carbon|warming/)) {
-        category = 'Environmental';
-        markerColor = [1, 0.2, 0.2];
-      } else if (lowerTitle.match(/development|economy|growth|infrastructure|business|market|trade/)) {
-        category = 'Development';
-        markerColor = [0.2, 1.0, 0.2];
-      } else if (lowerTitle.match(/war|conflict|fight|attack|military/)) {
-        category = 'Conflict';
-        markerColor = [1.0, 0.6, 0.0];
-      }
-
-      // Parse date safely. If undefined, we use new Date() ONLY as a last resort in the valid object, 
-      // but ideally we want the real date. 
-      // Geo API usually returns 'seendate' in YYYYMMDDTHHMMSSZ format.
+      // Parse date
       const parsedDate = parseGdeltDate(props.seendate);
 
-      return {
+      const marker: LocationMarker = {
         id: `event-${index}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         name: decodeHtmlEntities(title),
         latitude: latitude,
         longitude: longitude,
-        description: decodeHtmlEntities(title), // Fallback
+        description: decodeHtmlEntities(title), // Fallback description
         type: 'Event',
         sourceUrl: url,
         postImageUrl: props.shareimage || props.socialimage || undefined,
         isUserPost: false,
-        // If parsedDate is undefined, falling back to ISO string of now is standard behavior for "Live" feed,
-        // but user wants to know it's NOT from "now" if possible. 
-        // We'll keep the fallback but rely on improved parsing to catch the real date.
         publishedAt: parsedDate || new Date().toISOString(),
-        category,
-        markerColor,
+        category: vibe, // Map Vibe to Category for UI display
+        vibe: vibe,
+        sentiment: sentiment,
         country: locationName || props.sourcecountry || props.countrycode || 'Global',
         region: props.adm1code || '',
+        markerColor: [1, 0.8, 0] // Default Golden
       };
+
+      // Recalculate Color based on Vibe
+      if (vibe === 'Chill') marker.markerColor = [0.2, 0.9, 0.6]; // Cyan/Green
+      if (vibe === 'High Energy') marker.markerColor = [1.0, 0.2, 0.5]; // Hot Pink
+      if (vibe === 'Inspiration') marker.markerColor = [0.4, 0.5, 1.0]; // Blue
+
+      return marker;
     }).filter(m => m !== null) as LocationMarker[];
 
-    // 2. Fetch Rich Snippets (Hybrid Approach - Parallel Requests)
-    // Only fetch context for the FIRST 15 to save bandwidth, defer others or let UI handle it?
-    // Actually, for the "Reels" experience, we need images/snippets. 
-    // We'll fetch context for the top 15 to ensure the first batch is rich.
+    // 2. Fetch Rich Snippets (Hybrid Approach - Top 15)
+    // We limit to 15 to keep initial load fast, but the UI can fetch more on demand.
     try {
       const topMarkers = markers.slice(0, 15);
-
       await Promise.all(topMarkers.map(async (marker) => {
-        try {
-          const cleanTitle = marker.name.replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 60);
-          const encodedTitle = encodeURIComponent(cleanTitle);
-
-          if (cleanTitle.length < 5) return;
-
-          const queryUrl = `https://api.gdeltproject.org/api/v2/context/context?query="${encodedTitle}"&mode=ArtList&maxrows=1&format=json&timespan=24h`;
-
-          const res = await fetch(queryUrl);
-          if (!res.ok) return;
-
-          const text = await res.text();
-          let json;
-          try {
-            json = JSON.parse(text);
-          } catch (e) {
-            return;
-          }
-
-          if (json && json.articles && json.articles.length > 0) {
-            const match = json.articles[0];
-
-            if (match) {
-              if (marker.country === 'Global' && match.sourcecountry) {
-                marker.country = match.sourcecountry;
-              }
-              if (!marker.postImageUrl && match.socialimage) {
-                marker.postImageUrl = match.socialimage;
-              }
-
-              // Update timestamp if available
-              if (match.seendate) {
-                const contextDate = parseGdeltDate(match.seendate);
-                if (contextDate) {
-                  marker.publishedAt = contextDate;
-                }
-              }
-
-              const snippet = match.snippet || match.extrasnippet || match.context || match.content || match.title;
-
-              if (snippet && snippet !== marker.name) {
-                marker.description = decodeHtmlEntities(snippet.replace(/\s+/g, ' ').trim());
-              }
-            }
-          }
-        } catch (innerErr) {
-          // Ignore individual fetch errors
+        const details = await fetchEventDetails(marker.name);
+        if (details) {
+          if (details.newImage) marker.postImageUrl = details.newImage;
+          if (details.newDate) marker.publishedAt = details.newDate;
+          if (details.newDesc && details.newDesc !== marker.name) marker.description = details.newDesc;
         }
       }));
-
-    } catch (err) {
-      console.warn('Batch Context fetch failed:', err);
-    }
+    } catch (err) { }
 
     return markers;
 
   } catch (error) {
     console.warn("Failed to fetch GDELT events:", error);
     return [];
+  }
+};
+
+/**
+ * Fetches rich context (snippet, image, date) for a specific event query.
+ * Exposed for lazy-loading in the UI.
+ */
+export const fetchEventDetails = async (query: string): Promise<{ newImage?: string, newDate?: string, newDesc?: string } | null> => {
+  try {
+    const cleanTitle = query.replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 60);
+    if (cleanTitle.length < 5) return null;
+    const encodedTitle = encodeURIComponent(cleanTitle);
+
+    const queryUrl = `https://api.gdeltproject.org/api/v2/context/context?query="${encodedTitle}"&mode=ArtList&maxrows=1&format=json&timespan=3d`;
+
+    const res = await fetch(queryUrl);
+    if (!res.ok) return null;
+
+    const text = await res.text();
+    let json;
+    try { json = JSON.parse(text); } catch (e) { return null; }
+
+    if (json && json.articles && json.articles.length > 0) {
+      const match = json.articles[0];
+      if (match) {
+        const result: any = {};
+
+        if (match.socialimage) result.newImage = match.socialimage;
+
+        if (match.seendate) {
+          const contextDate = parseGdeltDate(match.seendate);
+          if (contextDate) result.newDate = contextDate;
+        }
+
+        const snippet = match.snippet || match.extrasnippet || match.context || match.content;
+        if (snippet) {
+          result.newDesc = decodeHtmlEntities(snippet.replace(/\s+/g, ' ').trim());
+        }
+
+        return result;
+      }
+    }
+    return null;
+  } catch (error) {
+    return null;
   }
 };

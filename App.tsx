@@ -12,7 +12,7 @@ import SupportChat from './components/SupportChat';
 import { supabase } from './services/supabaseClient';
 import { Session } from '@supabase/supabase-js';
 import { LocationMarker, SearchState, LocalPersona, ChatMessage, CameraControlRef, CrowdMember, Notification as AppNotification } from './types';
-import { fetchLocationsFromQuery, fetchCrowd, connectWithCrowdMember, chatWithPersona, getPlaceFromCoordinates } from './services/geminiService';
+import { fetchLocationsFromQuery, fetchCrowd, connectWithCrowdMember, chatWithPersona } from './services/geminiService';
 import { subscribeToNotifications, createNotification, getUnreadCount } from './services/notificationService';
 
 const App: React.FC = () => {
@@ -33,18 +33,7 @@ const App: React.FC = () => {
   // GDELT News State handled by Context
   const { newsEvents, isNewsFeedOpen, toggleNewsFeed } = useNews();
 
-  // Patrol Logic - previously tied to NewsFeed, now purely visual or removed? 
-  // User guide says "NewsFeed" is "Reels style". 
-  // Let's remove App-side patrol for now as NewsFeed has its own scroll interaction.
-  // But wait, "Auto Patrol" on the globe was a feature. 
-  // If we want to keep "Patrol Mode" on the globe while the feed is open, we need to handle it.
-  // However, with "Reels" overlay covering the screen, the globe is hidden!
-  // So Patrol on Globe is useless if Feed is non-transparent full screen.
-  // The Feed IS full screen (fixed inset-0 bg-black/90).
-  // So we don't need globe patrol when feed is open.
-  // We can remove patrol logic from App.
 
-  // const [isPatrolMode, setIsPatrolMode] = useState(false); // Removing this
 
 
   const combinedMarkers = useMemo(() => {
@@ -61,7 +50,7 @@ const App: React.FC = () => {
 
   // Persona/Chat State
   const [persona, setPersona] = useState<LocalPersona | null>(null); // Changed type from Persona to LocalPersona
-  const [lastPersona, setLastPersona] = useState<LocalPersona | null>(null); // Changed type from Persona to LocalPersona
+
   const [lastChatHistory, setLastChatHistory] = useState<ChatMessage[]>([]);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -196,12 +185,7 @@ const App: React.FC = () => {
       content: "Detected locations appear here. Select a sector to initiate a detailed scan.",
       position: "right"
     },
-    {
-      targetId: "zoom-controls",
-      title: "Optical Zoom",
-      content: "Adjust your altitude for a broader view or closer inspection of the terrain.",
-      position: "left"
-    }
+
   ];
 
   const notificationInitRef = useRef(false);
@@ -373,7 +357,7 @@ const App: React.FC = () => {
     setPersona(null);
     setSuggestions([]);
     setCrowd([]);
-    setLastPersona(null); // Clear last persona on new search
+
     setLastChatHistory([]); // Clear last chat history on new search
 
     // Disable News Feed on Search
@@ -430,42 +414,12 @@ const App: React.FC = () => {
     setPersona(null);
     setSuggestions([]);
     setCrowd([]);
-    setLastPersona(null);
+
     setLastChatHistory([]);
     setMarkerColor([0.2, 0.8, 1]); // Reset color
   }, [userMarkers]);
 
-  const handleUseCurrentLocation = useCallback(() => {
-    if (!navigator.geolocation) {
-      setSearchState(prev => ({ ...prev, error: "GPS sensors not detected." }));
-      return;
-    }
 
-    setSearchState(prev => ({ ...prev, isLoading: true, error: null }));
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude } = position.coords;
-        try {
-          const place = await getPlaceFromCoordinates(latitude, longitude);
-          setMarkers([place]);
-          setSelectedMarker(place);
-
-          if (globeRef.current) {
-            globeRef.current.flyTo(latitude, longitude);
-          }
-        } catch (error: any) {
-          setSearchState(prev => ({ ...prev, error: "Unable to triangulate current position." }));
-        } finally {
-          setSearchState(prev => ({ ...prev, isLoading: false }));
-        }
-      },
-      (error) => {
-        console.error(error);
-        setSearchState(prev => ({ ...prev, isLoading: false, error: "GPS permission denied or signal weak." }));
-      }
-    );
-  }, []);
 
   const handleSelectMarker = useCallback(async (marker: LocationMarker) => {
     setSelectedMarker(marker);
@@ -568,13 +522,10 @@ const App: React.FC = () => {
     setChatHistory([]);
     setSuggestions([]);
     setCurrentSessionId(null);
-    setLastPersona(null); // No longer needed for "Resume" button if we have full history
+
   }, []);
 
-  // Replaced by handleResumeSession from Profile
-  const handleResumeChat = useCallback(() => {
-    // Legacy resume - can be removed or kept for quick toggle
-  }, []);
+
 
   const handleSendMessage = useCallback(async (text: string) => {
     if (!persona || !selectedMarker) return;
@@ -647,23 +598,7 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const handleZoomIn = useCallback(() => {
-    if (globeRef.current) {
-      globeRef.current.zoomIn();
-    }
-  }, []);
 
-  const handleZoomOut = useCallback(() => {
-    if (globeRef.current) {
-      globeRef.current.zoomOut();
-    }
-  }, []);
-
-  const handleResetView = useCallback(() => {
-    if (globeRef.current) {
-      globeRef.current.resetView();
-    }
-  }, []);
 
   if (authLoading) {
     return <div className="w-full h-screen bg-black flex items-center justify-center text-white">Loading...</div>;
@@ -701,7 +636,7 @@ const App: React.FC = () => {
           selectedMarker={selectedMarker}
           onSelectMarker={handleSelectMarker}
           onCloseMarker={handleCloseMarker}
-          onUseCurrentLocation={handleUseCurrentLocation}
+
 
           crowd={crowd}
           isLoadingCrowd={isLoadingCrowd}
@@ -711,17 +646,14 @@ const App: React.FC = () => {
           persona={persona}
           isSummoning={isSummoning}
           onClosePersona={handleClosePersona}
-          lastPersona={lastPersona}
-          onResumeChat={handleResumeChat}
+
           timezone={selectedMarker?.timezone}
           chatHistory={chatHistory}
           onSendMessage={handleSendMessage}
           isChatLoading={isChatLoading}
           suggestions={suggestions}
 
-          onZoomIn={handleZoomIn}
-          onZoomOut={handleZoomOut}
-          onResetView={handleResetView}
+
 
           userEmail={session?.user?.email}
           userId={session?.user?.id}
@@ -749,7 +681,7 @@ const App: React.FC = () => {
         />
 
         {/* Universal Support Chat (Atlas AI) */}
-        {session?.user && !isChatOpen && <SupportChat userId={session.user.id} />}
+        {session?.user && !isChatOpen && !isNewsFeedOpen && <SupportChat userId={session.user.id} />}
 
       </div>
     </ErrorBoundary>

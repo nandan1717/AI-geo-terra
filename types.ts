@@ -15,7 +15,9 @@ export interface LocationMarker {
   // News Event Data
   sourceUrl?: string; // For linking to the news article
   publishedAt?: string; // ISO or GDELT date string
-  category?: 'Environmental' | 'Development' | 'Conflict' | 'General';
+  category?: 'Environmental' | 'Development' | 'Conflict' | 'General' | string;
+  vibe?: 'High Energy' | 'Chill' | 'Inspiration' | 'Intense' | 'Trending';
+  sentiment?: number; // Normalized -10 to +10
   markerColor?: [number, number, number]; // RGB tuple [0-1, 0-1, 0-1] for Cobe or CSS
 
   // User Post Data

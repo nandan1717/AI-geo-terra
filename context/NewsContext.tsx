@@ -10,6 +10,10 @@ interface NewsContextType {
     toggleNewsFeed: () => void;
     loadMore: () => void;
     refresh: () => void;
+
+    // Vibe Control
+    selectedVibe: 'High Energy' | 'Chill' | 'Inspiration' | 'Intense' | 'Trending';
+    setVibe: (vibe: 'High Energy' | 'Chill' | 'Inspiration' | 'Intense' | 'Trending') => void;
 }
 
 const NewsContext = createContext<NewsContextType | undefined>(undefined);
@@ -20,17 +24,27 @@ export const NewsProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [isLoading, setIsLoading] = useState(false);
     const [isNewsFeedOpen, setIsNewsFeedOpen] = useState(false);
 
+    const [selectedVibe, setSelectedVibe] = useState<'High Energy' | 'Chill' | 'Inspiration' | 'Intense' | 'Trending'>('Trending');
+
     // Pagination / buffering state
     const [displayCount, setDisplayCount] = useState(10);
     const seenUrlsRef = useRef<Set<string>>(new Set());
 
     // Initial Fetch & Refresh Logic
-    const fetchFreshNews = useCallback(async () => {
+    const fetchFreshNews = useCallback(async (reset: boolean = false) => {
         setIsLoading(true);
         try {
-            console.log("Fetching fresh GDELT news...");
+            console.log(`Fetching GDELT news for vibe: ${selectedVibe}...`);
+            // Reset state if changing vibe
+            if (reset) {
+                setAllEvents([]);
+                setNewsEvents([]);
+                seenUrlsRef.current.clear();
+                setDisplayCount(10);
+            }
             // Fetch a large batch (60)
-            const events = await fetchGlobalEvents(60);
+            // Note: Update service to accept vibe string if not strictly typed in import yet
+            const events = await fetchGlobalEvents(60, selectedVibe as any);
 
             // Filter out duplicates based on Source URL or Title to ensure "freshness"
             const uniqueNewEvents = events.filter(e => {
@@ -61,7 +75,10 @@ export const NewsProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 // For simplicity: We setAllEvents to the new batch + existing remainder?
                 // Or just keep a running list?
                 // Let's keep a running list of "allEvents" which acts as our source of truth.
-                setAllEvents(prev => [...prev, ...newFreshEvents]);
+                setAllEvents(prev => reset ? newFreshEvents : [...prev, ...newFreshEvents]);
+            } else if (reset) {
+                // If reset and no events, ensure we blank out
+                setAllEvents([]);
             }
 
             // If this was an initial load and we have no displayed events, fill them.
@@ -77,7 +94,23 @@ export const NewsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [selectedVibe]);
+
+    // Effect: Re-fetch on Vibe Change
+    const lastFetchedVibe = useRef<'High Energy' | 'Chill' | 'Inspiration' | 'Intense' | 'Trending' | null>(null);
+
+    // Consolidated Effect: Handle Initial Load AND Vibe Changes
+    useEffect(() => {
+        if (!isNewsFeedOpen) return;
+        if (isLoading) return;
+
+        // Fetch only if the requested vibe doesn't match what we have (or it's the first run)
+        if (lastFetchedVibe.current !== selectedVibe) {
+            console.log(`State Trigger: Fetching for ${selectedVibe} (Last: ${lastFetchedVibe.current})`);
+            lastFetchedVibe.current = selectedVibe;
+            fetchFreshNews(true);
+        }
+    }, [isNewsFeedOpen, selectedVibe, isLoading, fetchFreshNews]);
 
     // Load More (Infinite Scroll Trigger)
     const loadMore = useCallback(() => {
@@ -92,7 +125,7 @@ export const NewsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else {
             // We are running low! Trigger a background fetch
             console.log("Running low on news, background fetching...");
-            fetchFreshNews().then(() => {
+            fetchFreshNews(false).then(() => {
                 // After fetch, update the UI list with whatever we got
                 setNewsEvents(current => {
                     // Re-slice from the updated allEvents?
@@ -115,12 +148,12 @@ export const NewsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     }, [allEvents, displayCount]);
 
-    // Initial load when opened
-    useEffect(() => {
-        if (isNewsFeedOpen && allEvents.length === 0) {
-            fetchFreshNews();
-        }
-    }, [isNewsFeedOpen, fetchFreshNews, allEvents.length]);
+    // Initial load when opened (Old effect - REMOVED)
+    // useEffect(() => {
+    //     if (isNewsFeedOpen && allEvents.length === 0) {
+    //         fetchFreshNews();
+    //     }
+    // }, [isNewsFeedOpen, fetchFreshNews, allEvents.length]);
 
     const toggleNewsFeed = () => setIsNewsFeedOpen(prev => !prev);
 
@@ -135,7 +168,9 @@ export const NewsProvider: React.FC<{ children: React.ReactNode }> = ({ children
             isNewsFeedOpen,
             toggleNewsFeed,
             loadMore,
-            refresh: fetchFreshNews
+            refresh: () => fetchFreshNews(true),
+            selectedVibe,
+            setVibe: setSelectedVibe
         }}>
             {children}
         </NewsContext.Provider>
