@@ -1,5 +1,8 @@
+
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { LocationMarker } from '../types';
+import { recommendationService } from '../services/recommendationService';
+import { aiContentService } from '../services/aiContentService';
 import { fetchGlobalEvents } from '../services/gdeltService';
 
 interface NewsContextType {
@@ -14,6 +17,10 @@ interface NewsContextType {
     // Vibe Control
     selectedVibe: 'High Energy' | 'Chill' | 'Inspiration' | 'Intense' | 'Trending';
     setVibe: (vibe: 'High Energy' | 'Chill' | 'Inspiration' | 'Intense' | 'Trending') => void;
+
+    // Deep Linking
+    focusedEventId: string | null;
+    setFocusedEventId: (id: string | null) => void;
 }
 
 const NewsContext = createContext<NewsContextType | undefined>(undefined);
@@ -25,41 +32,89 @@ export const NewsProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [isNewsFeedOpen, setIsNewsFeedOpen] = useState(false);
 
     const [selectedVibe, setSelectedVibe] = useState<'High Energy' | 'Chill' | 'Inspiration' | 'Intense' | 'Trending'>('Trending');
+    const [focusedEventId, setFocusedEventId] = useState<string | null>(null);
 
     // Pagination / buffering state
     const [displayCount, setDisplayCount] = useState(10);
+    const [offset, setOffset] = useState(0);
     const seenUrlsRef = useRef<Set<string>>(new Set());
+
+    // Cycle Displayed News (for Globe Spin)
+    const cycleNews = useCallback(() => {
+        if (allEvents.length <= 10) return; // Not enough to cycle
+
+        setOffset(prev => {
+            const nextOffset = prev + 10;
+            // Wrap around if we run out
+            if (nextOffset >= allEvents.length) return 0;
+            return nextOffset;
+        });
+        // Reset display count to show just a fresh batch of 10
+        setDisplayCount(10);
+    }, [allEvents.length]);
+
+    // Cache for GDELT news to avoid re-fetching duplicates
+    const newsCacheRef = useRef<LocationMarker[]>([]);
 
     // Initial Fetch & Refresh Logic
     const fetchFreshNews = useCallback(async (reset: boolean = false) => {
         setIsLoading(true);
         try {
-            console.log(`Fetching GDELT news for vibe: ${selectedVibe}...`);
+            // Get Personalization Context
+            const personalizedQuery = recommendationService.getPersonalizedQuery();
+
             // Reset state if changing vibe
             if (reset) {
                 setAllEvents([]);
                 setNewsEvents([]);
+                setOffset(0);
                 seenUrlsRef.current.clear();
                 setDisplayCount(10);
+                newsCacheRef.current = []; // Clear cache on hard reset
             }
-            // Fetch a large batch (60)
-            // Note: Update service to accept vibe string if not strictly typed in import yet
-            const events = await fetchGlobalEvents(60, selectedVibe as any);
 
-            // Filter out duplicates based on Source URL or Title to ensure "freshness"
-            const uniqueNewEvents = events.filter(e => {
-                const navKey = e.sourceUrl || e.name;
-                if (selectedMarkerRef.current.has(navKey)) return false;
-                return true;
-            });
+            // 1. Get News Batch (from Cache or API)
+            let newsBatch: LocationMarker[] = [];
 
-            // If we have literally 0 new events, we might need to rely on the API returning *something* 
-            // but for now, we just prepend whatever is new.
-            // Actually, for "Reels", we often just want a linear stream.
-            // Let's simplified: Deduplicate against *current session* seen items.
+            if (newsCacheRef.current.length < 10) {
+                // Fetch a large fresh batch (60)
+                // Note: GDELT maxrows=60 gives us a good pool.
+                const freshNews = await fetchGlobalEvents(60, selectedVibe as any, personalizedQuery);
 
+                // Filter duplicates against globally seen URLs
+                const uniqueFresh = freshNews.filter(e => {
+                    const key = e.sourceUrl || e.name;
+                    if (seenUrlsRef.current.has(key)) return false;
+                    return true;
+                });
+
+                // Rank/Score them
+                const rankedFresh = recommendationService.rankItems(uniqueFresh);
+
+                // Append to cache
+                newsCacheRef.current = [...newsCacheRef.current, ...rankedFresh];
+            }
+
+            // Pop 10 items from cache
+            newsBatch = newsCacheRef.current.splice(0, 10);
+
+            // 2. Generate AI Content (10 items to match newsBatch size, or less if news ran out)
+            const count = newsBatch.length > 0 ? newsBatch.length : 10; // Fallback to 10 AI items if no news
+
+            const aiPosts = await aiContentService.batchGeneratePosts(count, selectedVibe === 'Trending' ? 'world events' : selectedVibe.toLowerCase());
+
+            // 3. INTERLEAVE CONTENT (News, AI, News, AI...)
+            const combinedFeed: LocationMarker[] = [];
+            const maxLength = Math.max(newsBatch.length, aiPosts.length);
+
+            for (let i = 0; i < maxLength; i++) {
+                if (newsBatch[i]) combinedFeed.push(newsBatch[i]);
+                if (aiPosts[i]) combinedFeed.push(aiPosts[i]);
+            }
+
+            // 4. Update State
             const newFreshEvents: LocationMarker[] = [];
-            events.forEach(e => {
+            combinedFeed.forEach(e => {
                 const key = e.sourceUrl || e.name;
                 if (!seenUrlsRef.current.has(key)) {
                     seenUrlsRef.current.add(key);
@@ -106,7 +161,7 @@ export const NewsProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         // Fetch only if the requested vibe doesn't match what we have (or it's the first run)
         if (lastFetchedVibe.current !== selectedVibe) {
-            console.log(`State Trigger: Fetching for ${selectedVibe} (Last: ${lastFetchedVibe.current})`);
+
             lastFetchedVibe.current = selectedVibe;
             fetchFreshNews(true);
         }

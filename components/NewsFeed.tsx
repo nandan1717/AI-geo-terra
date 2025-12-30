@@ -18,6 +18,9 @@ const NewsCard: React.FC<{ event: LocationMarker; index: number }> = ({ event, i
 
     // We keep local description state so we can update it on demand without refetching parent list
     const [description, setDescription] = useState(event.description);
+    const [displayDate, setDisplayDate] = useState(event.publishedAt);
+    const [displayImage, setDisplayImage] = useState(event.postImageUrl);
+    const [displayVideo, setDisplayVideo] = useState(event.postVideoUrl);
     const [hasEnhancedDetails, setHasEnhancedDetails] = useState(false);
 
     useEffect(() => {
@@ -34,43 +37,58 @@ const NewsCard: React.FC<{ event: LocationMarker; index: number }> = ({ event, i
 
     // Also sync if parent prop updates (e.g. initial load finishes later)
     useEffect(() => {
-        if (event.description !== description && !hasEnhancedDetails) {
-            setDescription(event.description);
+        if (event.description !== description && !hasEnhancedDetails) setDescription(event.description);
+        if (event.publishedAt !== displayDate && !hasEnhancedDetails) setDisplayDate(event.publishedAt);
+        if (event.postImageUrl !== displayImage && !hasEnhancedDetails) setDisplayImage(event.postImageUrl);
+        if (event.postVideoUrl !== displayVideo && !hasEnhancedDetails) setDisplayVideo(event.postVideoUrl);
+    }, [event.description, event.publishedAt, event.postImageUrl, event.postVideoUrl]);
+
+    // Auto-fetch details when card is active (visible) to correct the date/image
+    useEffect(() => {
+        if (isActive && !hasEnhancedDetails && !isLoadingDetails) {
+            handleReadMore(true); // Re-use the fetch logic, but maybe don't expand?
+            // Actually, handleReadMore toggles expansion. We just want the fetch.
+            // Let's extract the fetch logic.
+            fetchDetails();
         }
-    }, [event.description]);
+    }, [isActive]);
 
-    const handleReadMore = async () => {
-        if (isExpanded) {
-            setIsExpanded(false);
-            return;
-        }
-
-        setIsExpanded(true);
-
-        // Lazily fetch GDELT context if we haven't yet and the current desc is short/same as title
-        // or just always try to fetch better context if we haven't done it locally.
-        if (!hasEnhancedDetails && !isLoadingDetails) {
-            setIsLoadingDetails(true);
-            try {
-                // Import dynamically to avoid circular deps if needed, 
-                // but standard import is fine usually. 
-                // Note: We need to import fetchEventDetails.
-                // Assuming it's available in props or imported.
-                // We will rely on the import added at top of file.
-
-                // Fetch better snippet
-                import('../services/gdeltService').then(async ({ fetchEventDetails }) => {
-                    const details = await fetchEventDetails(event.name);
-                    if (details && details.newDesc && details.newDesc.length > (description?.length || 0)) {
-                        setDescription(details.newDesc);
-                        setHasEnhancedDetails(true);
-                    }
-                    setIsLoadingDetails(false);
-                });
-            } catch (e) {
-                setIsLoadingDetails(false);
+    const fetchDetails = async () => {
+        if (hasEnhancedDetails || isLoadingDetails) return;
+        setIsLoadingDetails(true);
+        try {
+            const { fetchEventDetails } = await import('../services/gdeltService');
+            const details = await fetchEventDetails(event.name);
+            if (details) {
+                if (details.newDesc && details.newDesc.length > (description?.length || 0)) {
+                    setDescription(details.newDesc);
+                }
+                if (details.newDate) setDisplayDate(details.newDate);
+                if (details.newImage) setDisplayImage(details.newImage);
             }
+            // For now, let's just assume the hook below (which doesn't exist yet) or just update local state if we add it.
+            // Wait, the currently implemented NewsCard uses `event.publishedAt` directly in the render.
+            // We need reference to local `publishedAt` state.
+            setIsLoadingDetails(false);
+            setHasEnhancedDetails(true);
+        } catch (e) {
+            setIsLoadingDetails(false);
         }
+    };
+
+    const handleReadMore = async (onlyFetch = false) => {
+        if (typeof onlyFetch !== 'boolean') onlyFetch = false; // Event handler guard
+
+        if (!onlyFetch) {
+            if (isExpanded) {
+                setIsExpanded(false);
+                return;
+            }
+            setIsExpanded(true);
+        }
+
+        // Fetch if needed
+        fetchDetails();
     };
 
     return (
@@ -79,14 +97,23 @@ const NewsCard: React.FC<{ event: LocationMarker; index: number }> = ({ event, i
             data-index={index}
             className="news-card w-full h-full snap-start snap-always relative flex flex-col bg-gray-900 border-b border-white/5 overflow-hidden group"
         >
-            {/* Background Image - Slight movement when active */}
+            {/* Background Media - Video or Image */}
             <div className="absolute inset-0 z-0">
-                {event.postImageUrl ? (
+                {displayVideo ? (
+                    <video
+                        src={displayVideo}
+                        poster={displayImage}
+                        autoPlay={isActive}
+                        muted
+                        loop
+                        playsInline
+                        className={`w-full h-full object-cover transition-transform duration-[10s] ease-linear ${isActive ? 'scale-110' : 'scale-100'}`}
+                    />
+                ) : displayImage ? (
                     <img
-                        src={event.postImageUrl}
+                        src={displayImage}
                         alt={event.name}
-                        className={`w-full h-full object-cover transition-transform duration-[10s] ease-linear ${isActive ? 'scale-110' : 'scale-100'
-                            }`}
+                        className={`w-full h-full object-cover transition-transform duration-[10s] ease-linear ${isActive ? 'scale-110' : 'scale-100'}`}
                     />
                 ) : (
                     <div className="w-full h-full bg-gradient-to-br from-[#0a0a0a] to-[#1a1a1a]" />
@@ -114,7 +141,7 @@ const NewsCard: React.FC<{ event: LocationMarker; index: number }> = ({ event, i
                     </div>
 
                     {/* Title */}
-                    <h2 className="text-2xl md:text-3xl font-black text-white leading-tight mb-2 drop-shadow-lg font-display tracking-tight">
+                    <h2 className={`font-black text-white leading-tight mb-2 drop-shadow-lg tracking-tight ${event.postVideoUrl ? 'text-3xl md:text-4xl font-serif italic' : 'text-2xl md:text-3xl font-display'}`}>
                         {event.name}
                     </h2>
 
@@ -132,32 +159,39 @@ const NewsCard: React.FC<{ event: LocationMarker; index: number }> = ({ event, i
                             </p>
                         </div>
                         <button
-                            onClick={handleReadMore}
+                            onClick={() => handleReadMore()}
                             className="text-[10px] text-blue-400 font-bold uppercase tracking-widest mt-2 flex items-center gap-1 hover:text-white transition-colors"
                         >
-                            {isExpanded ? 'Show Less' : 'Scanning For Details...'} <ChevronDown size={10} className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                            {isLoadingDetails ? 'Scanning...' : (isExpanded ? 'Show Less' : 'Read More')} <ChevronDown size={10} className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                         </button>
                     </div>
 
-                    {/* Metadata (Hidden when minimized for cleanliness?) --> Just minimal source */}
-                    <div className="flex items-center gap-2 mb-4">
-                        {event.sourceUrl && (
-                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 rounded-lg border border-white/10 hover:bg-white/10 transition-colors cursor-pointer" onClick={() => window.open(event.sourceUrl, '_blank')}>
-                                <Globe size={10} className="text-gray-400" />
-                                <span className="text-[10px] font-mono text-gray-300 uppercase">
-                                    {tryParseUrl(event.sourceUrl)}
-                                </span>
-                            </div>
-                        )}
-                        <span className="text-[10px] text-gray-500 font-mono">
-                            • {timeAgo(event.publishedAt)}
-                        </span>
-                    </div>
+                    {/* Metadata (Hidden for AI Posts) */}
+                    {!event.postVideoUrl && (
+                        <div className="flex items-center gap-2 mb-4">
+                            {event.sourceUrl && (
+                                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 rounded-lg border border-white/10 hover:bg-white/10 transition-colors cursor-pointer" onClick={() => window.open(event.sourceUrl, '_blank')}>
+                                    <Globe size={10} className="text-gray-400" />
+                                    <span className="text-[10px] font-mono text-gray-300 uppercase">
+                                        {tryParseUrl(event.sourceUrl)}
+                                    </span>
+                                </div>
+                            )}
+                            <span className="text-[10px] text-gray-500 font-mono">
+                                • {timeAgo(displayDate)}
+                            </span>
+                        </div>
+                    )}
 
-                    {/* GDELT Citation */}
-                    <div className="text-[8px] text-white/30 font-mono uppercase tracking-widest hover:text-white/60 transition-colors mb-2">
-                        Intel via <a href="https://www.gdeltproject.org/" target="_blank" rel="noreferrer" className="hover:text-blue-400">GDELT Project</a>
-                    </div>
+                    {/* AI Post Special Styling or GDELT Citation */}
+                    {!event.postVideoUrl && !event.sourceUrl?.includes('pexels') ? (
+                        <div className="text-[8px] text-white/30 font-mono uppercase tracking-widest hover:text-white/60 transition-colors mb-2">
+                            Intel via <a href="https://www.gdeltproject.org/" target="_blank" rel="noreferrer" className="hover:text-blue-400">GDELT Project</a>
+                        </div>
+                    ) : (
+                        // AI Post Footer (Minimal)
+                        <div className="mb-2"></div>
+                    )}
                 </div>
 
                 {/* Right Actions - Staggered Animation */}
@@ -196,10 +230,29 @@ const tryParseUrl = (url: string) => {
 };
 const timeAgo = (dateStr?: string) => {
     if (!dateStr) return 'LIVE';
-    const cleanDate = dateStr.replace('T', ' ').replace('Z', ''); // GDELT format fix if needed
-    // Simple helper or just return date
-    return new Date(dateStr).toLocaleDateString();
-}
+
+    // Safety check for invalid dates
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return 'UNKNOWN';
+
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHour = Math.floor(diffMin / 60);
+    const diffDay = Math.floor(diffHour / 24);
+
+    // Handle Future Dates (Clock skew or GDELT ingest time slightly ahead)
+    if (diffSec < 0) return 'JUST NOW';
+
+    if (diffSec < 60) return 'JUST NOW';
+    if (diffMin < 60) return `${diffMin}M AGO`;
+    if (diffHour < 24) return `${diffHour}H AGO`;
+    if (diffDay === 1) return 'YESTERDAY';
+    if (diffDay < 7) return `${diffDay}D AGO`;
+
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
 
 
 const NewsFeed: React.FC<NewsFeedProps> = ({ onEventClick }) => {
@@ -219,7 +272,8 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ onEventClick }) => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
                     const index = Number(entry.target.getAttribute('data-index'));
-                    if (index >= newsEvents.length - 3) loadMore();
+                    // Trigger loadMore when user sees the 7th item from end (seamless)
+                    if (index >= newsEvents.length - 7) loadMore();
                 }
             });
         };

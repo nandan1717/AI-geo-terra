@@ -8,6 +8,7 @@ import Auth from './components/Auth';
 import TutorialOverlay, { TutorialStep } from './components/TutorialOverlay';
 import ErrorBoundary from './components/ErrorBoundary';
 import SupportChat from './components/SupportChat';
+import { StoryBar } from './components/StoryBar';
 
 import { supabase } from './services/supabaseClient';
 import { Session } from '@supabase/supabase-js';
@@ -431,6 +432,11 @@ const App: React.FC = () => {
       globeRef.current.flyTo(marker.latitude, marker.longitude);
     }
 
+    // Recommendation Engine: Track Click
+    import('./services/recommendationService').then(({ recommendationService }) => {
+      recommendationService.trackInteraction(marker, 'CLICK');
+    });
+
     // Don't fetch crowd for News Events
     if (marker.type === 'Event') return;
 
@@ -682,6 +688,9 @@ const App: React.FC = () => {
 
         {/* Universal Support Chat (Atlas AI) */}
         {session?.user && !isChatOpen && !isNewsFeedOpen && <SupportChat userId={session.user.id} />}
+
+        {/* AI Story Bar */}
+        {!isNewsFeedOpen && !isChatOpen && <StoryBar />}
 
       </div>
     </ErrorBoundary>

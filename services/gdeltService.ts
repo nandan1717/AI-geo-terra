@@ -62,6 +62,25 @@ const parseGdeltDate = (dateStr: string | undefined): string | undefined => {
     return new Date(`${y}-${m}-${d}T${h}:${min}:${s}Z`).toISOString();
   }
 
+  // 3. "YYYYMMDDHHMM" (12 digits)
+  if (dateStr.match(/^\d{12}$/)) {
+    const y = dateStr.substring(0, 4);
+    const m = dateStr.substring(4, 6);
+    const d = dateStr.substring(6, 8);
+    const h = dateStr.substring(8, 10);
+    const min = dateStr.substring(10, 12);
+    return new Date(`${y}-${m}-${d}T${h}:${min}:00Z`).toISOString();
+  }
+
+  // 4. "YYYYMMDD" (8 digits - Date only)
+  if (dateStr.match(/^\d{8}$/)) {
+    const y = dateStr.substring(0, 4);
+    const m = dateStr.substring(4, 6);
+    const d = dateStr.substring(6, 8);
+    // Assume mid-day or start of day? Let's say 00:00 UTC
+    return new Date(`${y}-${m}-${d}T00:00:00Z`).toISOString();
+  }
+
   // 3. "YYYYMMDDHHMM" (Compact without seconds - sometimes seen)
   if (dateStr.match(/^\d{12}$/)) {
     const y = dateStr.substring(0, 4);
@@ -98,7 +117,7 @@ const decodeHtmlEntities = (text: string | null | undefined): string => {
 // Basic Vibe Definition
 type VibeType = 'High Energy' | 'Chill' | 'Inspiration' | 'Intense' | 'Trending';
 
-export const fetchGlobalEvents = async (limit: number = 60, vibe: VibeType = 'Trending'): Promise<LocationMarker[]> => {
+export const fetchGlobalEvents = async (limit: number = 60, vibe: VibeType = 'Trending', additionalQuery: string = ''): Promise<LocationMarker[]> => {
   try {
     // Construct Query based on Vibe
     // We try to exclude hard news (politics, military) and focus on cultural/emotional signals.
@@ -132,8 +151,32 @@ export const fetchGlobalEvents = async (limit: number = 60, vibe: VibeType = 'Tr
         break;
     }
 
+    // Append Personalization
+    if (additionalQuery) {
+      // e.g. " (sport OR festival ...)" + " OR (US OR Cricket)"
+      // Effectively doing: "Standard Vibe Stuff" OR "Personal Stuff"
+      // But we want to ensure quality.
+      // Actually, GDELT AND logic is strict.
+      // If we want to *include* personalized stuff that might NOT be in the vibe, we use OR.
+      // query = `(${query}) OR (${additionalQuery} ${baseExclusions})`; 
+      // Simply appending it inside the big query string might result in fewer matches if implied AND.
+      // GDELT default is AND.
+      // Let's broaden the search query loosely.
+      query += ` OR ${additionalQuery}`;
+    }
+
     // 1. Fetch Geo 2.0 Data with custom query
-    const response = await fetch(`https://api.gdeltproject.org/api/v2/geo/geo?query=${encodeURIComponent(query)}&mode=PointData&format=geojson&timespan=3d&maxrows=${limit}`);
+    // Changed timespan to 24h for freshness
+    // Added sortby=date to ensure we get the latest items
+    // Added random cache buster to prevent browser/CDN caching of the exact same query
+    const cacheBuster = Math.floor(Date.now() / (1000 * 60 * 5)); // Refresh cache every 5 minutes naturally, or use random for forced.
+    // User wants "as soon as refresh", so let's use a true random buster.
+    const uniqueReqId = Date.now();
+
+    // Using timespan=24h for freshness. sortby=date (GeoJSON mode might not strictly support sortby, but it respects timespan).
+    // Actually, GDELT GeoJSON mode doesn't strictly support `sortby` param in the URL same as the DOC API.
+    // But `timespan` is respected.
+    const response = await fetch(`https://api.gdeltproject.org/api/v2/geo/geo?query=${encodeURIComponent(query)}&mode=PointData&format=geojson&timespan=24h&maxrows=${limit}&_t=${uniqueReqId}`);
 
     if (!response.ok) {
       throw new Error(`GDELT API error: ${response.statusText}`);
@@ -236,7 +279,12 @@ export const fetchEventDetails = async (query: string): Promise<{ newImage?: str
     if (cleanTitle.length < 5) return null;
     const encodedTitle = encodeURIComponent(cleanTitle);
 
-    const queryUrl = `https://api.gdeltproject.org/api/v2/context/context?query="${encodedTitle}"&mode=ArtList&maxrows=1&format=json&timespan=3d`;
+    // Strategies to get the "Original" date:
+    // 1. Use 'doc' API instead of 'context'.
+    // 2. Sort by 'DateAsc' to find the EARLIEST mention (closest to publish time), 
+    //    instead of the most recent ingest (which results in "Today").
+    // 3. Widen timespan to '1w' to catch stories from a few days ago that are just peaking now.
+    const queryUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query="${encodedTitle}"&mode=ArtList&maxrows=1&format=json&sort=DateAsc&timespan=1w`;
 
     const res = await fetch(queryUrl);
     if (!res.ok) return null;

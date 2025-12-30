@@ -23,6 +23,7 @@ export interface LocationMarker {
   // User Post Data
   isUserPost?: boolean;
   postImageUrl?: string;
+  postVideoUrl?: string; // New: Support for video backgrounds
   postCaption?: string;
 }
 
@@ -139,4 +140,27 @@ export interface NotificationData {
   actionPath?: string;
   userName?: string;
   [key: string]: any;
+}
+
+// Story Bar Types
+export interface StoryItem {
+  id: string;
+  type: 'video' | 'image';
+  url: string;
+  duration: number; // seconds
+  takenAt: string; // ISO date
+  caption?: string; // AI Generated Caption
+}
+
+export interface Story {
+  id: string;
+  user: {
+    handle: string;
+    name: string;
+    avatarUrl: string;
+    isAi: boolean;
+  };
+  items: StoryItem[];
+  viewed: boolean;
+  expiresAt: number; // Timestamp
 }
