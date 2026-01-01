@@ -84,5 +84,40 @@ export const personaService = {
         } catch (e) {
             return [];
         }
+    },
+
+    /**
+     * Fetches a specific persona by name.
+     */
+    getPersonaByName: async (name: string): Promise<Persona | null> => {
+        if (!name) return null;
+        try {
+            const { data, error } = await supabase
+                .from('personas')
+                .select('*')
+                .ilike('name', name) // Case insensitive match
+                .maybeSingle();
+
+            if (error) {
+                console.warn('Error fetching persona by name:', error);
+                return null;
+            }
+
+            if (data) return data;
+
+            // Fallback check in local DB
+            const local = PERSONA_DATABASE.find(p => p.name.toLowerCase() === name.toLowerCase());
+            if (local) {
+                return {
+                    ...local,
+                    avatar_url: local.avatarUrl
+                } as Persona;
+            }
+
+            return null;
+        } catch (e) {
+            console.error("getPersonaByName failed", e);
+            return null;
+        }
     }
 };

@@ -2,6 +2,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Story, StoryItem } from '../types';
 import { aiContentService } from '../services/aiContentService';
+import { chatService } from '../services/chatService';
 import { X, Heart, Send } from 'lucide-react';
 
 const STORAGE_KEY = 'geo-terra-stories';
@@ -16,20 +17,46 @@ export const StoryBar: React.FC = () => {
     useEffect(() => {
         const initStories = async () => {
             try {
+                // 1. Get latest chat persona
+                // We wrap this in try-catch to avoid breaking if chatService fails (e.g. auth)
+                let latestPersonaName: string | undefined;
+                try {
+                    const recentSessions = await chatService.getRecentSessions();
+                    if (recentSessions.length > 0) {
+                        latestPersonaName = recentSessions[0].persona_name;
+                    }
+                } catch (err) {
+                    console.warn("Could not fetch recent sessions for story bar", err);
+                }
+
                 const stored = localStorage.getItem(STORAGE_KEY);
                 if (stored) {
                     const parsed: Story[] = JSON.parse(stored);
                     const now = Date.now();
+
                     // Check if valid and not expired (using first story's expiry as batch proxy)
-                    if (parsed.length > 0 && parsed[0].expiresAt > now) {
+                    const isValid = parsed.length > 0 && parsed[0].expiresAt > now;
+
+                    // Check if priority persona is present (if we have one)
+                    const hasLatestPersona = !latestPersonaName || parsed.some(s => s.user.name === latestPersonaName);
+
+                    if (isValid && hasLatestPersona) {
+                        // Re-sort local cache to put latest persona first
+                        if (latestPersonaName) {
+                            const pIndex = parsed.findIndex(s => s.user.name === latestPersonaName);
+                            if (pIndex > 0) {
+                                const [pStory] = parsed.splice(pIndex, 1);
+                                parsed.unshift(pStory);
+                            }
+                        }
                         setStories(parsed);
                         return;
                     }
                 }
 
                 // Gen new batch
-                console.log("Generating new Story Batch...");
-                const newStories = await aiContentService.generateStoryBatch(8);
+                console.log("Generating new Story Batch...", latestPersonaName);
+                const newStories = await aiContentService.generateStoryBatch(8, latestPersonaName);
                 setStories(newStories);
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(newStories));
 

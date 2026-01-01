@@ -268,11 +268,30 @@ export const aiContentService = {
      * Generates a batch of "Persona Stories" for the Story Bar.
      * Uses the Persona Database (Supabase) + Pexels Videos.
      */
-    generateStoryBatch: async (count: number = 5): Promise<Story[]> => {
+    generateStoryBatch: async (count: number = 5, priorityPersonaName?: string): Promise<Story[]> => {
         try {
             // 1. Get Personas
             await personaService.initialize(); // Ensure seeded
-            const personas = await personaService.getRandomPersonas(count);
+
+            let personas: any[] = [];
+            let needed = count;
+
+            // 1a. Fetch Priority Persona if requested
+            if (priorityPersonaName) {
+                const priorityPersona = await personaService.getPersonaByName(priorityPersonaName);
+                if (priorityPersona) {
+                    personas.push(priorityPersona);
+                    needed--;
+                }
+            }
+
+            // 1b. Fetch Random Personas for the rest
+            if (needed > 0) {
+                const randomPersonas = await personaService.getRandomPersonas(needed);
+                // Filter out the priority persona if fetched again by random chance
+                const filteredRandom = randomPersonas.filter(p => p.name !== priorityPersonaName);
+                personas = [...personas, ...filteredRandom];
+            }
 
             const stories: Story[] = [];
 
@@ -306,7 +325,7 @@ export const aiContentService = {
                             { role: 'user', content: captionPrompt }
                         ], false);
 
-                        stories.push({
+                        const story: Story = {
                             id: `story-${p.id}-${Date.now()}`,
                             user: {
                                 handle: p.handle.toLowerCase(),
@@ -326,10 +345,26 @@ export const aiContentService = {
                             ],
                             viewed: false,
                             expiresAt: Date.now() + (12 * 60 * 60 * 1000) // 12 hours from now
-                        });
+                        };
+
+                        // Add priority persona to the FRONT
+                        if (priorityPersonaName && p.name === priorityPersonaName) {
+                            stories.unshift(story);
+                        } else {
+                            stories.push(story);
+                        }
                     }
                 }
             }));
+
+            // Re-sort to ensure priority is first (Promise.all might mix order)
+            if (priorityPersonaName && stories.length > 0) {
+                const pIndex = stories.findIndex(s => s.user.name === priorityPersonaName);
+                if (pIndex > 0) {
+                    const [pStory] = stories.splice(pIndex, 1);
+                    stories.unshift(pStory);
+                }
+            }
 
             return stories;
 
