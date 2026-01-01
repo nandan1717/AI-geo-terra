@@ -51,6 +51,7 @@ interface UIOverlayProps {
 
     // Auth & Tutorial
     userEmail?: string;
+    userImage?: string;
     userId?: string;
     onSignOut: () => void;
     onRestartTutorial: () => void;
@@ -102,6 +103,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
 
 
     userEmail,
+    userImage,
     userId,
     onSignOut,
     onRestartTutorial,
@@ -317,34 +319,12 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                         addFriendsId="real-friends-btn"
                         notificationsId="notification-btn"
                         settingsId="settings-btn"
+                        userImage={userImage}
 
-                    // Injecting News Toggle into Sidebar props requires Sidebar update or ad-hoc button
-                    // Since Sidebar is a separate component, let's look at adding it there or just placing a floating button
-                    // Let's place a floating button for "Global Intel" if Sidebar doesn't support generic children easily
-                    // But wait, the plan implies integrating it properly. 
-                    // Let's check Sidebar later. For now, let's put a dedicated button in the top left or modify Sidebar.
-                    // Actually, let's add it to Sidebar props in a separate tool call if needed. 
-                    // For now, I'll add a separate floating toggle button below the Sidebar if needed, or pass it if Sidebar accepts children.
-                    // Checking Sidebar usage above... it seems rigid.
-                    // Let's add a floating toggle for now to avoid breaking Sidebar interface immediately, 
-                    // OR better, render a dedicated button for News in the top-left cluster if possible?
-                    // No, sidebar is the place.
-                    // Let's add an extra prop to Sidebar "extraItem" or just render a button near it.
+                        // Injecting News Toggle into Sidebar
+                        onNewsClick={toggleNewsFeed}
                     />
 
-                    {/* GLOBAL INTEL TOGGLE (Separate from Sidebar for now to ensure visibility/isolation) */}
-                    {!isNewsFeedOpen && !lockdownMode && (
-                        <button
-                            onClick={toggleNewsFeed}
-                            className="absolute left-2 md:left-6 top-[280px] md:top-[340px] z-[60] w-10 h-10 md:w-12 md:h-12 bg-black/60 backdrop-blur-xl border border-white/10 rounded-xl flex items-center justify-center text-gray-400 hover:text-white hover:bg-blue-600/20 hover:border-blue-500/50 transition-all shadow-lg group pointer-events-auto"
-                            title="Global Intel Feed"
-                        >
-                            <Globe size={20} className="group-hover:animate-spin-slow" />
-                            <div className="absolute left-full ml-3 px-2 py-1 bg-black/80 border border-white/10 rounded-md text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                                Global Intel
-                            </div>
-                        </button>
-                    )}
                 </>
             )}
 

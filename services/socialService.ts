@@ -185,7 +185,21 @@ export const socialService = {
 
         let publicUrl = null;
         let xpGained = 0;
-        let finalLocation = { name: null as string | null, lat: null as number | null, lng: null as number | null, country: null as string | null, region: null as string | null, continent: null as string | null };
+        let finalLocation: {
+            name: string | null;
+            lat: number | null;
+            lng: number | null;
+            country?: string | null;
+            region?: string | null;
+            continent?: string | null;
+        } = {
+            name: null,
+            lat: null,
+            lng: null,
+            country: null,
+            region: null,
+            continent: null
+        };
 
         // 1. Handle Image Upload & XP (Only if Image AND Location are provided)
         if (file && location) {

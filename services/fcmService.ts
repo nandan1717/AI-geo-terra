@@ -1,5 +1,5 @@
 import { getMessaging, getToken, onMessage, deleteToken } from "firebase/messaging";
-import { app, firebaseConfig } from "./firebaseConfig";
+import { app, firebaseConfig } from "./firebase";
 
 const messaging = getMessaging(app);
 

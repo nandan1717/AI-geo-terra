@@ -77,6 +77,9 @@ const App: React.FC = () => {
   const [showPermissionCard, setShowPermissionCard] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
 
+  // Profile State
+  const [userProfileImage, setUserProfileImage] = useState<string | undefined>(undefined);
+
   // Notification Handlers (Optimistic Updates)
   const handleMarkAsRead = useCallback(async (id: string) => {
     // Optimistic update
@@ -227,12 +230,24 @@ const App: React.FC = () => {
           // Fetch user profile and handle Welcome/Login notification
           supabase
             .from('app_profiles_v2')
-            .select('full_name, username')
+            .select('full_name, username, avatar_url')
             .eq('id', session.user.id)
             .single()
             .then(({ data: profile }) => {
               const rawName = profile?.full_name || profile?.username || session.user.email?.split('@')[0] || 'Commander';
               const firstName = rawName.split(' ')[0].charAt(0).toUpperCase() + rawName.split(' ')[0].slice(1).toLowerCase();
+
+              // Set Profile Image
+              if (profile?.avatar_url) {
+                setUserProfileImage(profile.avatar_url);
+              } else {
+                // Fallback to DiceBear if needed, or keeping it undefined to let Sidebar show default icon?
+                // User request says "show the user profile picture". 
+                // If they have one, show it. If not, maybe show DiceBear?
+                // Sidebar defaults to UserIcon if userImage is undefined.
+                // Let's use DiceBear as a nice default like in ProfileModal.
+                setUserProfileImage(`https://api.dicebear.com/7.x/avataaars/svg?seed=${profile?.username || session.user.id}`);
+              }
 
               const hasSeenWelcome = localStorage.getItem('mortals_welcome_notification');
               if (!hasSeenWelcome) {
@@ -663,6 +678,7 @@ const App: React.FC = () => {
 
           userEmail={session?.user?.email}
           userId={session?.user?.id}
+          userImage={userProfileImage}
           onSignOut={handleSignOut}
           onRestartTutorial={handleRestartTutorial}
           onResumeSession={handleResumeSession}

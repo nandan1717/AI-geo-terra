@@ -131,7 +131,7 @@ export const aiContentService = {
 
             return {
                 id: `ai-explorer-${Date.now()}`,
-                name: `@explorer_${Math.floor(Math.random() * 1000)} at ${locData.location}`,
+                name: `explorer*${Math.floor(Math.random() * 1000)}*${locData.location.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
                 description: caption.replace(/"/g, ''),
                 latitude: lat,
                 longitude: lng,
@@ -221,7 +221,8 @@ export const aiContentService = {
                 let title = item.text;
 
                 if (item.isExplorer) {
-                    title = item.location ? `@explorer in ${item.location}` : "@explorer_daily";
+                    const saneLoc = item.location ? item.location.toLowerCase().replace(/[^a-z0-9]/g, '') : "daily";
+                    title = `explorer*${saneLoc}`;
                     description = item.text; // Caption is description
                 } else {
                     // Quote/Fact/Humor
@@ -308,7 +309,7 @@ export const aiContentService = {
                         stories.push({
                             id: `story-${p.id}-${Date.now()}`,
                             user: {
-                                handle: p.handle,
+                                handle: p.handle.toLowerCase(),
                                 name: p.name,
                                 avatarUrl: p.avatar_url,
                                 isAi: true

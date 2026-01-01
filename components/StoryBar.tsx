@@ -158,7 +158,7 @@ export const StoryBar: React.FC = () => {
                                     <img src={activeStory.user.avatarUrl} className="w-9 h-9 rounded-full border-2 border-black" />
                                 </div>
                                 <div className="flex flex-col drop-shadow-md">
-                                    <span className="text-white text-sm font-black tracking-wide font-display">{activeStory.user.handle}</span>
+                                    <span className="text-white text-sm font-black tracking-wide font-display">{activeStory.user.handle.toLowerCase()}</span>
                                     <span className="text-amber-200/80 text-[10px] font-mono tracking-wider flex items-center gap-1">
                                         <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse" />
                                         {getTimeAgo(activeStory.items[0].takenAt)}

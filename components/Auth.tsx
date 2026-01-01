@@ -12,6 +12,7 @@ export default function Auth() {
     const [loading, setLoading] = useState(false);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [username, setUsername] = useState(''); // New state
     const [view, setView] = useState<AuthView>('signin');
     const [message, setMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
     const [showIntro, setShowIntro] = useState(true);
@@ -39,7 +40,10 @@ export default function Auth() {
                     email,
                     password,
                     options: {
-                        emailRedirectTo: window.location.origin
+                        emailRedirectTo: window.location.origin,
+                        data: {
+                            username: username // Save username to metadata initially
+                        }
                     }
                 });
                 if (error) throw error;
@@ -134,6 +138,25 @@ export default function Auth() {
                                     className="w-full pl-12 pr-4 py-3.5 bg-white/5 border border-white/10 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 outline-none transition-all text-white placeholder-gray-500 text-sm"
                                 />
                             </div>
+
+                            {/* Username Field (Signup Only) */}
+                            {view === 'signup' && (
+                                <div className="relative group">
+                                    <div className="absolute left-4 top-3.5 flex items-center justify-center w-5 text-gray-500 group-focus-within:text-white transition-colors text-sm font-bold">@</div>
+                                    <input
+                                        type="text"
+                                        placeholder="username (a-z, 0-9, *)"
+                                        value={username}
+                                        onChange={(e) => {
+                                            // Enforce format: lowercase, a-z, 0-9, *
+                                            const val = e.target.value.toLowerCase().replace(/[^a-z0-9*]/g, '');
+                                            setUsername(val);
+                                        }}
+                                        required
+                                        className="w-full pl-12 pr-4 py-3.5 bg-white/5 border border-white/10 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 outline-none transition-all text-white placeholder-gray-500 text-sm"
+                                    />
+                                </div>
+                            )}
 
                             {view !== 'forgot_password' && (
                                 <div className="relative group">

@@ -1,5 +1,5 @@
 import React from 'react';
-import { User, UserPlus, Bell, Settings, MessageCircle } from 'lucide-react';
+import { User, UserPlus, Bell, Settings, MessageCircle, Globe } from 'lucide-react';
 
 interface SidebarProps {
     onProfileClick: () => void;
@@ -7,12 +7,14 @@ interface SidebarProps {
     onRealFriendsClick?: () => void;
     onNotificationsClick?: () => void;
     onSettingsClick?: () => void;
+    onNewsClick?: () => void;
     unreadNotifications?: number;
     profileId?: string;
     chatsId?: string;
     addFriendsId?: string;
     notificationsId?: string;
     settingsId?: string;
+    userImage?: string;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -21,30 +23,39 @@ const Sidebar: React.FC<SidebarProps> = ({
     onRealFriendsClick,
     onNotificationsClick,
     onSettingsClick,
+    onNewsClick,
     unreadNotifications = 0,
     profileId,
     chatsId,
     addFriendsId,
     notificationsId,
-    settingsId
+    settingsId,
+    userImage
 }) => {
     return (
         <div className="absolute top-1/2 right-4 -translate-y-1/2 z-[60] pointer-events-auto flex flex-col gap-2">
             <div className="bg-black/60 backdrop-blur-xl border border-white/20 rounded-full p-2 flex flex-col gap-4 shadow-2xl">
 
+                {/* 1. Profile */}
                 <button
                     id={profileId}
                     onClick={onProfileClick}
                     className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-white transition-all active:scale-95 group relative"
                     title="Profile"
                 >
-                    <User size={20} />
+                    {userImage ? (
+                        <div className="w-6 h-6 rounded-full overflow-hidden ring-1 ring-white/30">
+                            <img src={userImage} alt="Profile" className="w-full h-full object-cover" />
+                        </div>
+                    ) : (
+                        <User size={20} />
+                    )}
                     <span className="absolute right-full mr-3 bg-black/80 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
                         Profile
                     </span>
                 </button>
 
-                {/* AI Chats Button (Formerly Add Friends) */}
+                {/* 2. Chats (AI) */}
                 <button
                     id={chatsId}
                     onClick={onChatsClick}
@@ -57,7 +68,19 @@ const Sidebar: React.FC<SidebarProps> = ({
                     </span>
                 </button>
 
-                {/* Real Friends Add Button (New) */}
+                {/* 3. Global Intel (Moved Here + Pulsing) */}
+                <button
+                    onClick={onNewsClick}
+                    className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-blue-400 transition-all active:scale-95 group relative animate-pulse"
+                    title="Global Intel"
+                >
+                    <Globe size={20} />
+                    <span className="absolute right-full mr-3 bg-black/80 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
+                        Global Intel
+                    </span>
+                </button>
+
+                {/* 4. Add Friends (Real Users) */}
                 <button
                     id={addFriendsId}
                     onClick={onRealFriendsClick}
@@ -70,6 +93,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                     </span>
                 </button>
 
+                <div className="h-[1px] bg-white/10 w-full mx-auto" />
+
+                {/* 5. Notifications (Moved Down) */}
                 <button
                     id={notificationsId}
                     onClick={onNotificationsClick}
@@ -89,8 +115,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     </span>
                 </button>
 
-                <div className="h-[1px] bg-white/10 w-full mx-auto" />
-
+                {/* 6. Settings */}
                 <button
                     id={settingsId}
                     onClick={onSettingsClick}
