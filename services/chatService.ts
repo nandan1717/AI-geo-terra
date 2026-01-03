@@ -22,6 +22,24 @@ export const chatService = {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) throw new Error("User not authenticated");
 
+        // 1. DEDUPLICATION: Check if session exists for this persona
+        const { data: existing } = await supabase
+            .from('chat_sessions')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('persona_name', persona.name)
+            .order('last_message_at', { ascending: false }) // Get most recent
+            .limit(1)
+            .maybeSingle();
+
+        if (existing) {
+            console.log("Found existing session, resuming:", existing.id);
+            // Optionally update location if needed, but for now just resume conversation
+            // If location changed significantly, might want to note it in system context, but keeping same session ID is key.
+            return existing as ChatSession;
+        }
+
+        // 2. Create NEW if none exists
         const { data, error } = await supabase
             .from('chat_sessions')
             .insert({

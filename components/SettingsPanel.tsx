@@ -1,5 +1,6 @@
 import React from 'react';
-import { X, LogOut, HelpCircle, User as UserIcon } from 'lucide-react';
+import { X, LogOut, HelpCircle, User as UserIcon, Trash2 } from 'lucide-react';
+import { supabase } from '../services/supabaseClient';
 
 interface SettingsPanelProps {
     isOpen: boolean;
@@ -16,6 +17,30 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     onRestartTutorial,
     userEmail
 }) => {
+    const handleDeleteAccount = async () => {
+        if (!confirm('Are you sure you want to delete your account? This action is irreversible and will delete all your data.')) {
+            return;
+        }
+
+        const confirmation = prompt('Type "DELETE" to confirm account deletion:');
+        if (confirmation !== 'DELETE') {
+            alert('Account deletion cancelled.');
+            return;
+        }
+
+        try {
+            const { error } = await supabase.rpc('delete_own_account');
+            if (error) throw error;
+
+            alert('Your account has been deleted.');
+            onSignOut();
+            onClose();
+        } catch (error: any) {
+            console.error('Error deleting account:', error);
+            alert('Failed to delete account: ' + (error.message || 'Unknown error'));
+        }
+    };
+
     if (!isOpen) return null;
 
     return (
@@ -97,6 +122,26 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                             </div>
                         </div>
                     </button>
+
+                    {/* Danger Zone */}
+                    <div className="pt-4 mt-4 border-t border-white/10">
+                        <p className="text-xs font-bold text-red-500 uppercase tracking-widest mb-3 px-1">Danger Zone</p>
+
+                        <button
+                            onClick={handleDeleteAccount}
+                            className="w-full p-3 bg-red-900/10 hover:bg-red-900/20 border border-red-500/20 rounded-lg text-left transition-colors group"
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center text-red-500 group-hover:bg-red-500/20 transition-colors">
+                                    <Trash2 size={20} />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-medium text-red-500">Delete Account</p>
+                                    <p className="text-xs text-red-400/60">Permanently remove your data</p>
+                                </div>
+                            </div>
+                        </button>
+                    </div>
                 </div>
             </div>
         </>

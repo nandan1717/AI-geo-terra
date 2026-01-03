@@ -54,6 +54,9 @@ const NewsCard: React.FC<{ event: LocationMarker; index: number }> = ({ event, i
     }, [isActive]);
 
     const fetchDetails = async () => {
+        // SKIP AI scan for User Posts to prevent Pexels overwrite
+        if (event.isUserPost) return;
+
         if (hasEnhancedDetails || isLoadingDetails) return;
         setIsLoadingDetails(true);
         try {
@@ -66,9 +69,6 @@ const NewsCard: React.FC<{ event: LocationMarker; index: number }> = ({ event, i
                 if (details.newDate) setDisplayDate(details.newDate);
                 if (details.newImage) setDisplayImage(details.newImage);
             }
-            // For now, let's just assume the hook below (which doesn't exist yet) or just update local state if we add it.
-            // Wait, the currently implemented NewsCard uses `event.publishedAt` directly in the render.
-            // We need reference to local `publishedAt` state.
             setIsLoadingDetails(false);
             setHasEnhancedDetails(true);
         } catch (e) {
@@ -87,8 +87,23 @@ const NewsCard: React.FC<{ event: LocationMarker; index: number }> = ({ event, i
             setIsExpanded(true);
         }
 
-        // Fetch if needed
-        fetchDetails();
+        // Fetch only if NOT a user post
+        if (!event.isUserPost) {
+            fetchDetails();
+        }
+    };
+
+    // Handle Profile Navigation
+    const handleViewClick = () => {
+        if (event.isUserPost && (event as any).userId) {
+            // Open Profile (Dispatch event or use router if available)
+            // Since we don't have direct access to nav here, we can dispatch a custom event
+            window.dispatchEvent(new CustomEvent('geo-terra:view-profile', {
+                detail: { userId: (event as any).userId }
+            }));
+        } else if (event.sourceUrl) {
+            window.open(event.sourceUrl, '_blank');
+        }
     };
 
     return (
@@ -107,17 +122,36 @@ const NewsCard: React.FC<{ event: LocationMarker; index: number }> = ({ event, i
                         muted
                         loop
                         playsInline
+                        onError={(e) => {
+                            // Fallback to image if video fails
+                            console.warn("Video failed to load", displayVideo);
+                            setDisplayVideo(undefined);
+                        }}
                         className={`w-full h-full object-cover transition-transform duration-[10s] ease-linear ${isActive ? 'scale-110' : 'scale-100'}`}
                     />
                 ) : displayImage ? (
                     <img
                         src={displayImage}
                         alt={event.name}
+                        onError={(e) => {
+                            // Hide image if it fails, fallback to gradient
+                            e.currentTarget.style.display = 'none';
+                            setDisplayImage(undefined);
+                        }}
                         className={`w-full h-full object-cover transition-transform duration-[10s] ease-linear ${isActive ? 'scale-110' : 'scale-100'}`}
                     />
                 ) : (
                     <div className="w-full h-full bg-gradient-to-br from-[#0a0a0a] to-[#1a1a1a]" />
                 )}
+
+                {/* Fallback Gradient if no media */}
+                {!displayImage && !displayVideo && (
+                    <div className={`absolute inset-0 bg-gradient-to-br ${event.category === 'Environmental' ? 'from-green-900/40 to-black' :
+                        event.category === 'Conflict' ? 'from-red-900/40 to-black' :
+                            'from-blue-900/40 to-black'
+                        }`} />
+                )}
+
                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent opacity-90" />
             </div>
 
@@ -133,7 +167,7 @@ const NewsCard: React.FC<{ event: LocationMarker; index: number }> = ({ event, i
                             event.category === 'Conflict' ? 'bg-orange-600/20 text-orange-300 border-orange-500/30' :
                                 'bg-blue-500/20 text-blue-300 border-blue-500/30'
                             }`}>
-                            {event.category || 'NEWS'}
+                            {event.category || (event.isUserPost ? 'COMMUNITY' : 'NEWS')}
                         </span>
                         <span className="text-[10px] text-gray-300 flex items-center gap-1 bg-black/30 px-2 py-0.5 rounded-full border border-white/10">
                             <MapPin size={10} className="text-white" /> {event.country}
@@ -150,7 +184,7 @@ const NewsCard: React.FC<{ event: LocationMarker; index: number }> = ({ event, i
                         <div
                             className={`space-y-3 transition-all duration-300 overflow-hidden ${isExpanded ? 'max-h-[60vh] overflow-y-auto pr-2 scrollbar-hide' : 'max-h-16'}`}
                         >
-                            <p className="text-sm text-gray-200 leading-relaxed" onClick={handleReadMore}>
+                            <p className="text-sm text-gray-200 leading-relaxed" onClick={() => handleReadMore()}>
                                 {isLoadingDetails ? (
                                     <span className="animate-pulse text-gray-400">Updating intel...</span>
                                 ) : (
@@ -169,7 +203,7 @@ const NewsCard: React.FC<{ event: LocationMarker; index: number }> = ({ event, i
                     {/* Metadata (Hidden for AI Posts) */}
                     {!event.postVideoUrl && (
                         <div className="flex items-center gap-2 mb-4">
-                            {event.sourceUrl && (
+                            {event.sourceUrl && !event.isUserPost && (
                                 <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 rounded-lg border border-white/10 hover:bg-white/10 transition-colors cursor-pointer" onClick={() => window.open(event.sourceUrl, '_blank')}>
                                     <Globe size={10} className="text-gray-400" />
                                     <span className="text-[10px] font-mono text-gray-300 uppercase">
@@ -184,7 +218,7 @@ const NewsCard: React.FC<{ event: LocationMarker; index: number }> = ({ event, i
                     )}
 
                     {/* AI Post Special Styling or GDELT Citation */}
-                    {!event.postVideoUrl && !event.sourceUrl?.includes('pexels') ? (
+                    {!event.postVideoUrl && !event.isUserPost && !event.sourceUrl?.includes('pexels') ? (
                         <div className="text-[8px] text-white/30 font-mono uppercase tracking-widest hover:text-white/60 transition-colors mb-2">
                             Intel via <a href="https://www.gdeltproject.org/" target="_blank" rel="noreferrer" className="hover:text-blue-400">GDELT Project</a>
                         </div>
@@ -201,13 +235,13 @@ const NewsCard: React.FC<{ event: LocationMarker; index: number }> = ({ event, i
                     <ActionButton icon={<MessageCircle size={26} />} label="Discuss" />
                     <ActionButton icon={<Share2 size={26} />} label="Share" />
                     <button
-                        onClick={() => event.sourceUrl && window.open(event.sourceUrl, '_blank')}
+                        onClick={handleViewClick}
                         className="flex flex-col items-center gap-1 group mt-2"
                     >
                         <div className="w-10 h-10 rounded-full bg-blue-600/90 text-white flex items-center justify-center shadow-[0_0_15px_rgba(37,99,235,0.6)] animate-pulse hover:scale-110 transition-transform">
-                            <Eye size={20} />
+                            {event.isUserPost ? <Globe size={20} /> : <Eye size={20} />}
                         </div>
-                        <span className="text-[9px] font-bold text-white drop-shadow-md">View</span>
+                        <span className="text-[9px] font-bold text-white drop-shadow-md">{event.isUserPost ? 'Profile' : 'View'}</span>
                     </button>
                 </div>
             </div>
@@ -258,9 +292,91 @@ const timeAgo = (dateStr?: string) => {
 const NewsFeed: React.FC<NewsFeedProps> = ({ onEventClick }) => {
     const { newsEvents, isLoading, isNewsFeedOpen, toggleNewsFeed, loadMore, selectedVibe, setVibe } = useNews();
     const scrollRef = useRef<HTMLDivElement>(null);
+    const [userPosts, setUserPosts] = useState<LocationMarker[]>([]);
+    const [loadingPosts, setLoadingPosts] = useState(false);
     const observerRef = useRef<IntersectionObserver | null>(null);
 
-    // Infinite Scroll Trigger (Parent Observer)
+    // Fetch Global User Posts
+    useEffect(() => {
+        const fetchGlobalPosts = async () => {
+            setLoadingPosts(true);
+            try {
+                const { socialService } = await import('../services/socialService');
+                const posts = await socialService.fetchGlobalPosts();
+
+                // Convert to LocationMarker format
+                const markers: LocationMarker[] = posts.map(p => ({
+                    id: `post-${p.id}`,
+                    name: p.user?.full_name || 'Explorer',
+                    latitude: p.location_lat || 0,
+                    longitude: p.location_lng || 0,
+                    description: p.caption,
+                    type: 'Post',
+                    isUserPost: true,
+                    postImageUrl: p.image_url,
+                    postCaption: p.caption,
+                    country: p.location_name || p.country, // Prefer specific name
+                    publishedAt: p.created_at,
+                    sourceUrl: p.image_url,
+                    // Store user ID for navigation
+                    userId: p.user_id
+                } as any)); // Type assertion for extended props
+                setUserPosts(markers);
+            } catch (e) {
+                console.error("Failed to fetch global posts", e);
+            } finally {
+                setLoadingPosts(false);
+            }
+        };
+
+        if (isNewsFeedOpen) {
+            fetchGlobalPosts();
+        }
+
+        // Real-time listener
+        const handleNewPost = () => {
+            fetchGlobalPosts();
+        };
+        window.addEventListener('geo-terra:global-post-created', handleNewPost);
+        return () => window.removeEventListener('geo-terra:global-post-created', handleNewPost);
+
+    }, [isNewsFeedOpen]);
+
+    // Merge & Interleave (1 User : 3 World) -> Result: 25% User, 75% World (which is 25% GDELT, 50% AI)
+    const combinedFeed = React.useMemo(() => {
+        const sortedUser = [...userPosts].sort((a, b) => new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
+        // newsEvents is already mixed (GDELT/AI) by Context, but sorting by date might shuffle that mix?
+        // Actually, Context appends AI to GDELT. So dates might be slightly separate.
+        // If we sort NewsEvents by date, we might clump GDELT (real time) together and AI (generated/past?) together?
+        // AI posts are usually generated "now" or with recent dates.
+        // Let's trust the Context mix ORDER if we want strict ratio, OR sort by date if we want time accuracy.
+        // User wants "Ratio". Context mixing was specific.
+        // If we sort `newsEvents` again, we undo the G, AI, AI pattern IF their dates are wildly different.
+        // GDELT dates are real (last 24h). AI dates are usually set to "now" or simulated.
+        // Safe to assume we can just take `newsEvents` AS IS?
+        // Recommendation: Keep `newsEvents` order from Context (which enforced ratio), 
+        // but User posts need to be injected.
+
+        const worldEvents = [...newsEvents]; // Respect Context order (G, AI, AI...)
+
+        const mixed: LocationMarker[] = [];
+        let uIdx = 0;
+        let wIdx = 0;
+
+        while (uIdx < sortedUser.length || wIdx < worldEvents.length) {
+            // Add 1 User Post
+            if (uIdx < sortedUser.length) {
+                mixed.push(sortedUser[uIdx++]);
+            }
+            // Add 3 World Events
+            for (let i = 0; i < 3; i++) {
+                if (wIdx < worldEvents.length) {
+                    mixed.push(worldEvents[wIdx++]);
+                }
+            }
+        }
+        return mixed;
+    }, [userPosts, newsEvents]);
     useEffect(() => {
         const options = {
             root: scrollRef.current,
@@ -273,7 +389,9 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ onEventClick }) => {
                 if (entry.isIntersecting) {
                     const index = Number(entry.target.getAttribute('data-index'));
                     // Trigger loadMore when user sees the 7th item from end (seamless)
-                    if (index >= newsEvents.length - 7) loadMore();
+                    // Request: "only fetch 10 at a time when user is on 7th"
+                    // If we have 10 items, length-4 = 6. Index 6 is the 7th item.
+                    if (index >= combinedFeed.length - 4) loadMore();
                 }
             });
         };
@@ -289,7 +407,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ onEventClick }) => {
         return () => {
             if (observerRef.current) observerRef.current.disconnect();
         };
-    }, [newsEvents, loadMore]);
+    }, [combinedFeed, loadMore]);
 
 
     if (!isNewsFeedOpen) return null;
@@ -330,7 +448,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ onEventClick }) => {
                     ref={scrollRef}
                     className="flex-1 overflow-y-auto snap-y snap-mandatory scrollbar-hide bg-[#050505]" // Removed padding causing bleed
                 >
-                    {newsEvents.length === 0 && isLoading && (
+                    {combinedFeed.length === 0 && isLoading && (
                         <div className="w-full h-screen flex flex-col items-center justify-center text-gray-500">
                             <div className="relative mb-6">
                                 <div className="absolute inset-0 bg-blue-500 blur-2xl opacity-20 animate-pulse"></div>
@@ -340,8 +458,8 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ onEventClick }) => {
                         </div>
                     )}
 
-                    {newsEvents.map((event, idx) => (
-                        <NewsCard key={`${event.id}-${idx}`} event={event} index={idx} />
+                    {combinedFeed.map((event, idx) => (
+                        <NewsCard key={event.id} event={event} index={idx} />
                     ))}
 
                     {/* Loading Indicator at Bottom */}

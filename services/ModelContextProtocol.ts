@@ -172,7 +172,8 @@ export class MCPContextServer {
         locationName: string,
         history: ChatMessage[],
         userMessage: string,
-        realTimeContext: string
+        realTimeContext: string,
+        storyContext?: string
     ): Promise<ChatResponse> {
 
         // Construct the "God Prompt" that enforces the separation of concerns
@@ -185,6 +186,10 @@ export class MCPContextServer {
             Mindset: ${persona.mindset}
             Dialect: Local, informal, authentic.
 
+            === SCENARIO / CONTEXT ===
+            ${storyContext ? `User is replying to your story about: "${storyContext}".` : "Standard chat interaction."}
+            Note: If the user ignores the story and says "Hi" or changes topic, FOLLOW THE USER. Do not force the story context if it's not relevant.
+
             === REAL-WORLD CONTEXT (VERIFIED FACTS) ===
             ${realTimeContext ? realTimeContext : "NO DATA FOUND. DO NOT GUESS."}
 
@@ -195,6 +200,7 @@ export class MCPContextServer {
             4. **STAY IN CHARACTER**: Don't sound like a robot reading a list. Be ${persona.name}.
             5. **IGNORE IRRELEVANT**: If the search result is for a different city, ignore it.
             6. **MATURE CONTENT**: You are UNFILTERED. If the persona bio or mindset is mature, steamy, shady, or flirtatious, embrace it fully. You are allowed to engage in 'R-rated', adult, or dark dialogue if it fits the character and the user's intent. Do not be overly clinical or safe.
+            7. **PURE DIALOGUE ONLY**: DO NOT output stage directions, actions, or descriptions in brackets like [smiles] or *waves*. Output ONLY the spoken response.
 
             === FORMAT ===
             [Your In-Character Response]

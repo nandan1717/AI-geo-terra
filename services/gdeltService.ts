@@ -114,6 +114,14 @@ const decodeHtmlEntities = (text: string | null | undefined): string => {
     .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec));
 };
 
+// CORS PROXY HELPER
+// GDELT images often fail CORS checks on canvas/globe. usage of images.weserv.nl fixes this.
+const getProxiedUrl = (url: string | undefined | null) => {
+  if (!url) return undefined;
+  // Return weserv proxy url
+  return `https://images.weserv.nl/?url=${encodeURIComponent(url)}&w=800&q=80`;
+};
+
 // Basic Vibe Definition
 type VibeType = 'High Energy' | 'Chill' | 'Inspiration' | 'Intense' | 'Trending';
 
@@ -169,12 +177,12 @@ export const fetchGlobalEvents = async (limit: number = 60, vibe: VibeType = 'Tr
     // Changed timespan to 24h for freshness
     // Added sortby=date to ensure we get the latest items
     // Added random cache buster to prevent browser/CDN caching of the exact same query
-    const cacheBuster = Math.floor(Date.now() / (1000 * 60 * 5)); // Refresh cache every 5 minutes naturally, or use random for forced.
+    // const cacheBuster = Math.floor(Date.now() / (1000 * 60 * 5)); // Refresh cache every 5 minutes naturally, or use random for forced.
     // User wants "as soon as refresh", so let's use a true random buster.
     const uniqueReqId = Date.now();
 
     // Using timespan=24h for freshness. sortby=date (GeoJSON mode might not strictly support sortby, but it respects timespan).
-    // Actually, GDELT GeoJSON mode doesn't strictly support `sortby` param in the URL same as the DOC API.
+    // actually, GDELT GeoJSON mode doesn't strictly support `sortby` param in the URL same as the DOC API.
     // But `timespan` is respected.
     const response = await fetch(`https://api.gdeltproject.org/api/v2/geo/geo?query=${encodeURIComponent(query)}&mode=PointData&format=geojson&timespan=24h&maxrows=${limit}&_t=${uniqueReqId}`);
 
@@ -220,15 +228,37 @@ export const fetchGlobalEvents = async (limit: number = 60, vibe: VibeType = 'Tr
       // Parse date
       const parsedDate = parseGdeltDate(props.seendate);
 
+      // Stable ID Generation
+      // Use URL or specific properties to lock the identity of the event
+      // Fix: Use Base64 encoding to ensure valid unique keys for React.
+      const rawId = url || props.url_mobile || props.title || `event-${latitude}-${longitude}`;
+      // Encode to Base64 to preserve all characters uniquely, then make it URL-safe just in case
+      let safeId = '';
+      try {
+        safeId = btoa(rawId).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      } catch (e) {
+        // Fallback for unicode characters in URL
+        safeId = rawId.replace(/[^a-zA-Z0-9]/g, '');
+      }
+      const stableId = `gdelt-${safeId}`;
+
+      // CORS PROXY HELPER
+      // GDELT images often fail CORS checks on canvas/globe. usage of images.weserv.nl fixes this.
+      const getProxiedUrl = (url: string) => {
+        if (!url) return undefined;
+        // Return weserv proxy url
+        return `https://images.weserv.nl/?url=${encodeURIComponent(url)}&w=800&q=80`;
+      };
+
       const marker: LocationMarker = {
-        id: `event-${index}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        id: stableId,
         name: decodeHtmlEntities(title),
         latitude: latitude,
         longitude: longitude,
         description: decodeHtmlEntities(title), // Fallback description
         type: 'Event',
         sourceUrl: url,
-        postImageUrl: props.shareimage || props.socialimage || undefined,
+        postImageUrl: getProxiedUrl(props.shareimage || props.socialimage),
         isUserPost: false,
         publishedAt: parsedDate || new Date().toISOString(),
         category: vibe, // Map Vibe to Category for UI display
@@ -254,12 +284,31 @@ export const fetchGlobalEvents = async (limit: number = 60, vibe: VibeType = 'Tr
       await Promise.all(topMarkers.map(async (marker) => {
         const details = await fetchEventDetails(marker.name);
         if (details) {
-          if (details.newImage) marker.postImageUrl = details.newImage;
+          if (details.newImage) marker.postImageUrl = getProxiedUrl(details.newImage);
           if (details.newDate) marker.publishedAt = details.newDate;
           if (details.newDesc && details.newDesc !== marker.name) marker.description = details.newDesc;
         }
       }));
     } catch (err) { }
+
+    // 3. Notification Trigger for High Impact Events
+    // Find the most "intense" or relevant event to notify about
+    try {
+      const intenseEvent = markers.find(m => m.sentiment > 7 || m.category === 'Intense');
+      if (intenseEvent) {
+        import('./notificationService').then(({ createNotification }) => {
+          import('./supabaseClient').then(async ({ supabase }) => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+              createNotification(user.id, 'NEWS_ALERT', {
+                message: `${intenseEvent.name.substring(0, 50)}...`,
+                uniqueId: intenseEvent.id // Relies on logic in notificationService to dedupe by ID
+              });
+            }
+          });
+        });
+      }
+    } catch (e) { }
 
     return markers;
 

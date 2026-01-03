@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Bell, Check, Trash2, UserPlus, LogIn, LogOut, Lightbulb, AlertCircle, Sparkles } from 'lucide-react';
+import { X, Bell, Check, Trash2, UserPlus, LogIn, LogOut, Lightbulb, AlertCircle, Sparkles, Camera, Newspaper, Film, MessageCircle } from 'lucide-react';
 import { Notification, NotificationType } from '../types';
 
 interface NotificationPanelProps {
@@ -10,6 +10,8 @@ interface NotificationPanelProps {
     onMarkAsRead: (id: string) => void;
     onMarkAllAsRead: () => void;
     onDelete: (id: string) => void;
+    onResumeSession: (id: string, persona: any, location: any) => void;
+    onChatToggle: (isOpen: boolean) => void;
 }
 
 const NotificationPanel: React.FC<NotificationPanelProps> = ({
@@ -19,9 +21,24 @@ const NotificationPanel: React.FC<NotificationPanelProps> = ({
     userId,
     onMarkAsRead,
     onMarkAllAsRead,
-    onDelete
+    onDelete,
+    onResumeSession,
+    onChatToggle
 }) => {
     const [isAnimating, setIsAnimating] = useState(false);
+    const [toastNotification, setToastNotification] = useState<Notification | null>(null);
+
+    // Watch for new high-priority messages to toast
+    useEffect(() => {
+        const latest = notifications[0];
+        if (latest && !latest.read && (Date.now() - new Date(latest.createdAt).getTime() < 5000)) {
+            if (latest.type === 'NEW_MESSAGE' || latest.type === 'STORY_UPDATE' || latest.type === 'NEWS_ALERT') {
+                setToastNotification(latest);
+                const timer = setTimeout(() => setToastNotification(null), 5000);
+                return () => clearTimeout(timer);
+            }
+        }
+    }, [notifications]);
 
     useEffect(() => {
         if (isOpen) {
@@ -61,6 +78,14 @@ const NotificationPanel: React.FC<NotificationPanelProps> = ({
                 return <Sparkles size={20} className="text-purple-400" />;
             case 'SYSTEM':
                 return <AlertCircle size={20} className="text-gray-400" />;
+            case 'STORY_UPDATE':
+                return <Camera size={20} className="text-pink-400" />;
+            case 'NEWS_ALERT':
+                return <Newspaper size={20} className="text-red-400" />;
+            case 'CONTENT_DROP':
+                return <Film size={20} className="text-purple-400" />;
+            case 'ENGAGEMENT_SAYS':
+                return <MessageCircle size={20} className="text-green-400" />;
             default:
                 return <Bell size={20} className="text-white" />;
         }
@@ -92,6 +117,38 @@ const NotificationPanel: React.FC<NotificationPanelProps> = ({
                     }`}
                 onClick={handleClose}
             />
+
+            {/* Toast Notification (Popup) */}
+            {toastNotification && (
+                <div
+                    className="fixed top-20 left-1/2 -translate-x-1/2 z-[60] animate-in slide-in-from-top-4 fade-in duration-300 cursor-pointer"
+                    onClick={() => {
+                        if (toastNotification.data?.sessionId) {
+                            onResumeSession(
+                                toastNotification.data.sessionId,
+                                { name: toastNotification.title.replace('💬 ', ''), imageUrl: toastNotification.data.senderAvatar } as any, // Mock Persona
+                                { name: 'Chat', latitude: 0, longitude: 0 } as any // Mock Location
+                            );
+                            onChatToggle(true);
+                            setToastNotification(null); // Dismiss
+                        }
+                    }}
+                >
+                    <div className="bg-white/10 backdrop-blur-xl border border-white/20 shadow-2xl rounded-full px-6 py-3 flex items-center gap-4 min-w-[300px]">
+                        {toastNotification.data?.senderAvatar ? (
+                            <img src={toastNotification.data.senderAvatar} className="w-10 h-10 rounded-full border border-white/30" />
+                        ) : (
+                            <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center border border-blue-500/30">
+                                <MessageCircle size={20} className="text-blue-400" />
+                            </div>
+                        )}
+                        <div className="flex flex-col">
+                            <span className="text-white text-sm font-bold">{toastNotification.title}</span>
+                            <span className="text-white/70 text-xs truncate max-w-[200px]">{toastNotification.message}</span>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Panel */}
             <div

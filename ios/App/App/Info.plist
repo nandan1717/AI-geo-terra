@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>NSCameraUsageDescription</key>
+    <string>We need access to your camera to let you post stories and photos.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>We need access to your photos to let you upload existing memories.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>We need your location to show you local events and friends nearby.</string>
     <key>CAPACITOR_DEBUG</key>
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>

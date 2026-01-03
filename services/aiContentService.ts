@@ -160,37 +160,33 @@ export const aiContentService = {
     batchGeneratePosts: async (count: number = 5, topic: string = 'travel'): Promise<LocationMarker[]> => {
         try {
             // 1. Generate Batch Content via DeepSeek
+            // Enhanced prompt for variety and video-friendliness
             const prompt = `
-                Generate ${count} unique, engaging social media posts about "${topic}" or general life/travel.
-                Mix these styles:
-                - Quotes (philosophy/travel)
-                - Fascinating Facts
-                - Humorous Observations
-                - "Explorer" updates (simulated travel logs)
+                Generate ${count} unique, engaging social media posts about "${topic}" or general life/travel/culture.
                 
-                CRITICAL VISUAL INSTRUCTION:
-                You MUST extract the main SUBJECT of the text for the "visualQuery".
-                - If text matches "Great Wall", visualQuery: "Great Wall of China cinematic".
-                - If text matches "Coffee", visualQuery: "Barista making coffee close up".
-                - If text matches "Colosseum", visualQuery: "Colosseum Rome hyperlapse".
+                CRITICAL INSTRUCTIONS:
+                1. AVOID generic "cyberpunk" or "neon" cities unless specifically requested.
+                2. MIX STYLES: 
+                   - 60% "Explorer" (simulated realistic travel moments).
+                   - 20% "Fascinating Fact" (nature/science/history).
+                   - 20% "Thought Provoking" (philosophy/questions).
+                3. VISUALS must be real-world and specific (e.g., "Man hiking Swiss Alps", "Chef cooking street food Bangkok", "Lion walking savanna").
                 
-                Do NOT just use the city name. Use the specific landmark or object mentioned.
-                
-                Return JSON array:
+                Return JSON array ONLY:
                 [
                   {
-                    "text": "Main content...",
-                    "author": "Author or 'Unknown'", 
-                    "type": "Quote" | "Fact" | "Humor" | "Explorer",
-                    "visualQuery": "Specific Subject + Aesthetic (e.g. 'cinematic')",
-                    "location": "City, Country" (for Explorer/Fact),
+                    "text": "The main caption/content...",
+                    "author": "Author Name" (or null), 
+                    "type": "Quote" | "Fact" | "Explorer",
+                    "visualQuery": "Specific Subject + Aesthetic (e.g. 'Street food sizzling 4k' or 'Mountain drone shot')",
+                    "location": "City, Country" (Required for Explorer),
                     "isExplorer": boolean
                   }
                 ]
             `;
 
             const rawContent = await queryDeepSeek([
-                { role: 'system', content: 'You are a creative social media AI. Output JSON array.' },
+                { role: 'system', content: 'You are a world-class content creator. Output JSON array only.' },
                 { role: 'user', content: prompt }
             ], true);
 
@@ -203,60 +199,85 @@ export const aiContentService = {
                 return [];
             }
 
-            // 2. Fetch Videos in Parallel
-            const postPromises = items.map(async (item) => {
-                const videos = await pexelsService.searchVideos(item.visualQuery || 'abstract', 1);
-                const video = videos[0];
-                if (!video) return null;
+            // 2. Fetch Videos in Parallel (with Concurrency Limit of 5)
+            const results: LocationMarker[] = [];
+            const chunkSize = 5;
 
-                // Enforce Video (HD MP4)
-                const videoFile = video.video_files.find(f => f.quality === 'hd' && f.file_type === 'video/mp4') || video.video_files[0];
-                if (!videoFile) return null;
+            for (let i = 0; i < items.length; i += chunkSize) {
+                const chunk = items.slice(i, i + chunkSize);
 
-                const lat = (Math.random() * 160) - 80;
-                const lng = (Math.random() * 360) - 180;
+                const chunkPromises = chunk.map(async (item) => {
+                    // Determine best query for Pexels Video
+                    // We append "video" or "hd" to hint, although we call searchVideos endpoint
+                    const videoQuery = item.visualQuery || 'nature 4k';
 
-                // Description Logic - CLEANER NOW
-                let description = "";
-                let title = item.text;
+                    const videos = await pexelsService.searchVideos(videoQuery, 1);
+                    const video = videos[0];
+                    if (!video) return null;
 
-                if (item.isExplorer) {
-                    const saneLoc = item.location ? item.location.toLowerCase().replace(/[^a-z0-9]/g, '') : "daily";
-                    title = `explorer*${saneLoc}`;
-                    description = item.text; // Caption is description
-                } else {
-                    // Quote/Fact/Humor
-                    if (item.type === 'Quote' && item.author && item.author !== 'Unknown') {
-                        description = `— ${item.author}`;
+                    // Enforce Video (Prefer HD MP4, then any MP4)
+                    // Filter for a valid MP4 link
+                    const videoFile = video.video_files.find(f => f.quality === 'hd' && f.file_type === 'video/mp4')
+                        || video.video_files.find(f => f.file_type === 'video/mp4')
+                        || video.video_files[0];
+
+                    if (!videoFile) return null;
+
+                    const lat = (Math.random() * 160) - 80;
+                    const lng = (Math.random() * 360) - 180;
+
+                    // Description Logic
+                    let description = "";
+                    let title = item.text;
+
+                    if (item.isExplorer) {
+                        const saneLoc = item.location ? item.location.toLowerCase().replace(/[^a-z0-9]/g, '') : "daily";
+                        title = `explorer*${saneLoc}`;
+                        description = item.text;
                     } else {
-                        // For Facts, Humor, Questions: NO SUBHEADING.
-                        // The title contains the content. Description is empty to be clean.
-                        description = "";
+                        if (item.type === 'Quote' && item.author && item.author !== 'Unknown') {
+                            description = `— ${item.author}`;
+                        } else if (item.type === 'Fact') {
+                            description = "Did you know?";
+                            title = item.text; // Text is the fact
+                        } else {
+                            description = "";
+                        }
                     }
+
+                    // Final Marker Construction
+                    const post: LocationMarker = {
+                        id: `ai-batch-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                        name: title,
+                        description: description,
+                        latitude: lat,
+                        longitude: lng,
+                        type: 'Post',
+                        postImageUrl: video.image, // Thumbnail
+                        postVideoUrl: videoFile.link, // Actual Video
+                        sourceUrl: video.user.url,
+                        country: item.location || 'Global',
+                        isUserPost: false,
+                        publishedAt: new Date().toISOString(),
+                        category: item.type === 'Quote' ? 'Inspiration' : 'Travel',
+                        vibe: 'Inspiration',
+                        markerColor: [0.8, 0.4, 1.0]
+                    };
+
+                    return post;
+                });
+
+                const chunkResults = await Promise.all(chunkPromises);
+                results.push(...(chunkResults.filter(p => p !== null) as LocationMarker[]));
+
+                // Optional: Small delay between chunks to be nice to API
+                if (i + chunkSize < items.length) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
                 }
+            }
 
-                const post: LocationMarker = {
-                    id: `ai-batch-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-                    name: title,
-                    description: description,
-                    latitude: lat,
-                    longitude: lng,
-                    type: 'Post',
-                    postImageUrl: video.image,
-                    postVideoUrl: videoFile.link,
-                    sourceUrl: video.user.url,
-                    country: item.location || 'Global',
-                    isUserPost: false,
-                    publishedAt: new Date().toISOString(),
-                    category: item.type === 'Quote' ? 'Inspiration' : 'Travel',
-                    vibe: 'Inspiration',
-                    markerColor: [0.8, 0.4, 1.0]
-                };
-                return post;
-            });
+            return results;
 
-            const results = await Promise.all(postPromises);
-            return results.filter(p => p !== null) as LocationMarker[];
 
         } catch (e) {
             console.error("Batch Gen Failed", e);
@@ -295,67 +316,79 @@ export const aiContentService = {
 
             const stories: Story[] = [];
 
-            // 2. For each persona, find a video matching their vibe
-            await Promise.all(personas.map(async (p) => {
-                // Pick a random topic
-                const topic = p.topics[Math.floor(Math.random() * p.topics.length)];
+            // 2. For each persona, find a video matching their vibe (Concurrency Limited)
+            const chunkSize = 5;
+            for (let i = 0; i < personas.length; i += chunkSize) {
+                const chunk = personas.slice(i, i + chunkSize);
 
-                // Search for VERTICAL video
-                const videos = await pexelsService.searchVideos(`${topic} vertical aesthetic`, 1);
-                const video = videos[0];
+                await Promise.all(chunk.map(async (p) => {
+                    // Pick a random topic (These are now Smart Topics, e.g. "Coffee at Blue Bottle SF")
+                    const topic = p.topics[Math.floor(Math.random() * p.topics.length)];
 
-                if (video) {
-                    // Try to find a portrait/vertical file, or fallback to high res
-                    // Pexels API doesn't always guarantee orientation in 'video_files', but we requested it in search.
-                    // We look for height > width typically, or just the best quality.
-                    const videoFile = video.video_files.find(f => f.height > f.width && f.file_type === 'video/mp4')
-                        || video.video_files.find(f => f.quality === 'hd')
-                        || video.video_files[0];
+                    // Search for VIDEO
+                    // We try to keep the query clean for best matches.
+                    // "topic + vertical" helps Pexels find 9:16 content often.
+                    // Augment with gender to ensure visual consistency (e.g. "Coffee woman" vs "Coffee man")
+                    // Note: 'gender' is now on the p object from personaService
+                    const genderTerm = p.gender === 'Female' ? 'woman' : (p.gender === 'Male' ? 'man' : 'person');
+                    const videoQuery = `${topic} ${genderTerm}`;
 
-                    if (videoFile) {
-                        // Generate AI Caption
-                        const captionPrompt = `
-                            Write a very short, aesthetic Instagram story caption (max 10 words) for a video about "${topic}".
-                            Vibe: ${p.vibe}.
-                            Author: ${p.name}.
-                            Use 1-2 emojis. No hashtags.
-                        `;
-                        const caption = await queryDeepSeek([
-                            { role: 'system', content: 'You are a trendy social media user. Output text only.' },
-                            { role: 'user', content: captionPrompt }
-                        ], false);
+                    const videos = await pexelsService.searchVideos(videoQuery, 1);
+                    const video = videos[0];
 
-                        const story: Story = {
-                            id: `story-${p.id}-${Date.now()}`,
-                            user: {
-                                handle: p.handle.toLowerCase(),
-                                name: p.name,
-                                avatarUrl: p.avatar_url,
-                                isAi: true
-                            },
-                            items: [
-                                {
-                                    id: `item-${video.id}`,
-                                    type: 'video',
-                                    url: videoFile.link,
-                                    duration: video.duration,
-                                    takenAt: new Date().toISOString(),
-                                    caption: caption.replace(/"/g, '').trim()
-                                }
-                            ],
-                            viewed: false,
-                            expiresAt: Date.now() + (12 * 60 * 60 * 1000) // 12 hours from now
-                        };
+                    if (video) {
+                        // Try to find a portrait/vertical file, or fallback to high res
+                        // Pexels API doesn't always guarantee orientation in 'video_files', but we requested it in search.
+                        // We look for height > width typically, or just the best quality.
+                        const videoFile = video.video_files.find(f => f.height > f.width && f.file_type === 'video/mp4')
+                            || video.video_files.find(f => f.quality === 'hd')
+                            || video.video_files[0];
 
-                        // Add priority persona to the FRONT
-                        if (priorityPersonaName && p.name === priorityPersonaName) {
-                            stories.unshift(story);
-                        } else {
-                            stories.push(story);
+                        if (videoFile) {
+                            // Generate AI Caption specific to the topic
+                            const captionPrompt = `
+                                Write a very short, aesthetic Instagram story caption (max 10 words) about: "${topic}".
+                                Vibe: ${p.vibe}.
+                                Author: ${p.name}.
+                                Use 1-2 emojis. No hashtags.
+                            `;
+                            const caption = await queryDeepSeek([
+                                { role: 'system', content: 'You are a trendy social media user. Output text only.' },
+                                { role: 'user', content: captionPrompt }
+                            ], false);
+
+                            const story: Story = {
+                                id: `story-${p.id}-${Date.now()}`,
+                                user: {
+                                    handle: p.handle.toLowerCase(),
+                                    name: p.name,
+                                    avatarUrl: p.avatar_url,
+                                    isAi: true
+                                },
+                                items: [
+                                    {
+                                        id: `item-${video.id}`,
+                                        type: 'video',
+                                        url: videoFile.link,
+                                        duration: video.duration,
+                                        takenAt: new Date().toISOString(),
+                                        caption: caption.replace(/"/g, '').trim()
+                                    }
+                                ],
+                                viewed: false,
+                                expiresAt: Date.now() + (12 * 60 * 60 * 1000) // 12 hours from now
+                            };
+
+                            // Add priority persona to the FRONT
+                            if (priorityPersonaName && p.name === priorityPersonaName) {
+                                stories.unshift(story);
+                            } else {
+                                stories.push(story);
+                            }
                         }
                     }
-                }
-            }));
+                }));
+            }
 
             // Re-sort to ensure priority is first (Promise.all might mix order)
             if (priorityPersonaName && stories.length > 0) {
@@ -364,6 +397,28 @@ export const aiContentService = {
                     const [pStory] = stories.splice(pIndex, 1);
                     stories.unshift(pStory);
                 }
+            }
+
+            // Notification Trigger (Fire & Forget)
+            if (stories.length > 0) {
+                import('./notificationService').then(({ createNotification }) => {
+                    const userId = localStorage.getItem('user_id_v2'); // Helper to get current user if possible, or we need to pass it
+                    // Since aiContentService is often called by the client for the current user, we try to grab ID.
+                    // If not readily available, we might skip or rely on caller.
+                    // Assuming for now the caller handles it or we use a global store.
+                    // Actually, let's just use the Supabase session if available.
+                    import('./supabaseClient').then(async ({ supabase }) => {
+                        const { data: { user } } = await supabase.auth.getUser();
+                        if (user) {
+                            const names = stories.slice(0, 2).map(s => s.user.name).join(', ');
+                            const extra = stories.length > 2 ? ` and ${stories.length - 2} others` : '';
+                            createNotification(user.id, 'STORY_UPDATE', {
+                                message: `New stories from ${names}${extra}.`,
+                                uniqueId: `story_batch_${new Date().setMinutes(0, 0, 0)}` // Unique per hour
+                            });
+                        }
+                    });
+                });
             }
 
             return stories;

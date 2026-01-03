@@ -1,19 +1,18 @@
 import React from 'react';
-import { User, UserPlus, Bell, Settings, MessageCircle, Globe } from 'lucide-react';
+import { User, UserPlus, Bell, Settings, MessageCircle, Globe, PlusSquare } from 'lucide-react';
 
 interface SidebarProps {
     onProfileClick: () => void;
     onChatsClick?: () => void;
     onRealFriendsClick?: () => void;
     onNotificationsClick?: () => void;
-    onSettingsClick?: () => void;
     onNewsClick?: () => void;
+    onPostClick?: () => void;
     unreadNotifications?: number;
     profileId?: string;
     chatsId?: string;
     addFriendsId?: string;
     notificationsId?: string;
-    settingsId?: string;
     userImage?: string;
 }
 
@@ -22,14 +21,13 @@ const Sidebar: React.FC<SidebarProps> = ({
     onChatsClick,
     onRealFriendsClick,
     onNotificationsClick,
-    onSettingsClick,
     onNewsClick,
+    onPostClick,
     unreadNotifications = 0,
     profileId,
     chatsId,
     addFriendsId,
     notificationsId,
-    settingsId,
     userImage
 }) => {
     return (
@@ -68,19 +66,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     </span>
                 </button>
 
-                {/* 3. Global Intel (Moved Here + Pulsing) */}
-                <button
-                    onClick={onNewsClick}
-                    className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-blue-400 transition-all active:scale-95 group relative animate-pulse"
-                    title="Global Intel"
-                >
-                    <Globe size={20} />
-                    <span className="absolute right-full mr-3 bg-black/80 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
-                        Global Intel
-                    </span>
-                </button>
-
-                {/* 4. Add Friends (Real Users) */}
+                {/* 3. Add Friends (Real Users) */}
                 <button
                     id={addFriendsId}
                     onClick={onRealFriendsClick}
@@ -93,9 +79,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     </span>
                 </button>
 
-                <div className="h-[1px] bg-white/10 w-full mx-auto" />
-
-                {/* 5. Notifications (Moved Down) */}
+                {/* 4. Notifications */}
                 <button
                     id={notificationsId}
                     onClick={onNotificationsClick}
@@ -115,16 +99,29 @@ const Sidebar: React.FC<SidebarProps> = ({
                     </span>
                 </button>
 
-                {/* 6. Settings */}
+                <div className="h-[1px] bg-white/10 w-full mx-auto" />
+
+                {/* 5. Post (Moved Up) */}
                 <button
-                    id={settingsId}
-                    onClick={onSettingsClick}
-                    className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-white transition-all active:scale-95 group relative"
-                    title="Settings"
+                    onClick={onPostClick}
+                    className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-blue-400 transition-all active:scale-95 group relative animate-in zoom-in"
+                    title="New Post"
                 >
-                    <Settings size={20} />
+                    <PlusSquare size={20} />
                     <span className="absolute right-full mr-3 bg-black/80 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
-                        Settings
+                        New Post
+                    </span>
+                </button>
+
+                {/* 6. Global Intel (Moved Here) */}
+                <button
+                    onClick={onNewsClick}
+                    className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-blue-400 transition-all active:scale-95 group relative animate-pulse"
+                    title="Global Intel"
+                >
+                    <Globe size={20} />
+                    <span className="absolute right-full mr-3 bg-black/80 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
+                        Global Intel
                     </span>
                 </button>
 

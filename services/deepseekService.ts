@@ -1,7 +1,9 @@
 
 // DeepSeek API Service
 const API_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY || process.env.VITE_DEEPSEEK_API_KEY;
-const API_URL = "/api/deepseek/chat/completions";
+
+// Use direct URL if proxy fails or for debugging (DeepSeek supports CORS)
+const API_URL = "https://api.deepseek.com/chat/completions";
 
 interface DeepSeekMessage {
   role: 'system' | 'user' | 'assistant';
@@ -14,6 +16,8 @@ export const queryDeepSeek = async (
   temperature: number = 1.3
 ): Promise<string> => {
   try {
+    if (!API_KEY) throw new Error("Missing DeepSeek API Key");
+
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: {

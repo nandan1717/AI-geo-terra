@@ -10,6 +10,7 @@ export interface Persona {
     bio: string;
     vibe: string;
     topics: string[];
+    gender: 'Male' | 'Female' | 'Non-binary';
 }
 
 export const personaService = {
@@ -38,7 +39,8 @@ export const personaService = {
                     avatar_url: p.avatarUrl,
                     bio: p.bio,
                     vibe: p.vibe,
-                    topics: p.topics
+                    topics: p.topics,
+                    gender: 'Female' // Default mock gender if missing in seed
                 }));
 
                 const { error: insertError } = await supabase
@@ -57,6 +59,102 @@ export const personaService = {
     },
 
     /**
+     * initializes with smart personas based on user context.
+     * Wipes existing non-smart personas if needed.
+     */
+    ensureSmartPersonas: async (userName: string, location: string) => {
+        const smartSeedingKey = 'mortals_smart_seeding_complete_v3'; // Bump version to force re-seed
+        const hasSeeded = localStorage.getItem(smartSeedingKey);
+
+        if (hasSeeded) {
+            console.log("Smart personas already seeded.");
+            return;
+        }
+
+        console.log(`Seeding Smart Personas for ${userName} in ${location}...`);
+
+        try {
+            // 1. Generate Smart Data
+            const smartPersonas = await personaService.generatePersonasFromAI(userName, location);
+
+            if (smartPersonas.length > 0) {
+                // 2. Wipe Table (For this user's context context - actually global for now since single user app mostly)
+                // Using a wipe here because the user requested "clear the database"
+                await supabase.from('personas').delete().neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all
+
+                // 3. Insert New Data
+                const { error } = await supabase.from('personas').insert(smartPersonas);
+
+                if (error) {
+                    console.error("Failed to insert smart personas:", error);
+                } else {
+                    console.log("Smart personas inserted successfully.");
+                    localStorage.setItem(smartSeedingKey, 'true');
+                    // Clear cached stories to force regeneration
+                    localStorage.removeItem('geo-terra-stories');
+                    localStorage.removeItem('geo-terra-stories_ai');
+
+                    // Broadcast event to reload bar
+                    window.dispatchEvent(new Event('geo-terra:story-created'));
+                }
+            }
+        } catch (e) {
+            console.error("Smart seeding failed", e);
+        }
+    },
+
+    /**
+     * Generates a list of personas relevant to the user via AI.
+     */
+    generatePersonasFromAI: async (userName: string, location: string): Promise<any[]> => {
+        try {
+            const { queryDeepSeek } = await import('./deepseekService');
+
+            const prompt = `
+                Generate 5 distinct, realistic 'Local Friend' personas for a user named "${userName}" who is currently in "${location}".
+                
+                The personas should match the "Vibe" of ${location} (e.g. if NYC -> Creative, Tech, Fashion; if Bali -> Digital Nomad, Surfer).
+                They should sound like real people who would be friends with the user.
+                
+                Return a JSON Array of objects:
+                [
+                    {
+                        "handle": "unique_username",
+                        "name": "Full Name",
+                        "bio": "Short 1 sentence bio",
+                        "vibe": "Chill" | "High Energy" | "Inspiration" | "Intense",
+                        "gender": "Male" | "Female", 
+                        "topics": ["specific topic 1", "specific topic 2", "specific topic 3"] (e.g. "Coffee in Mission District", "Surfing Ocean Beach"),
+                        "avatar_style": "seed_string" (just a random string for seed)
+                    }
+                ]
+            `;
+
+            const raw = await queryDeepSeek([
+                { role: 'system', content: 'You are a creative director. Output valid JSON array only.' },
+                { role: 'user', content: prompt }
+            ], true);
+
+            const data = JSON.parse(raw);
+            const list = Array.isArray(data) ? data : (data.personas || []);
+
+            return list.map((p: any) => ({
+                handle: p.handle.toLowerCase().replace(/[^a-z0-9_]/g, ''),
+                name: p.name,
+                bio: p.bio,
+                vibe: p.vibe,
+                gender: p.gender || 'Female', // Default if missing
+                topics: p.topics,
+                avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${p.avatar_style}`
+            }));
+
+        } catch (e) {
+            console.error("AI Persona Gen Failed", e);
+            return [];
+        }
+    },
+
+    /**
      * Fetches random personas for stories.
      */
     getRandomPersonas: async (limit: number = 5): Promise<Persona[]> => {
@@ -68,13 +166,9 @@ export const personaService = {
                 .select('*')
                 .limit(20);
 
-            if (error || !data) {
-                // Fallback to local data if DB fails or is empty (and seeding failed)
-                console.warn('Fetching personas failed, using fallback.', error);
-                return PERSONA_DATABASE.slice(0, limit).map(p => ({
-                    ...p,
-                    avatar_url: p.avatarUrl
-                })) as Persona[];
+            if (error || !data || data.length === 0) {
+                // Return empty if DB is empty (waiting for seed)
+                return [];
             }
 
             // Shuffle array
@@ -99,21 +193,10 @@ export const personaService = {
                 .maybeSingle();
 
             if (error) {
-                console.warn('Error fetching persona by name:', error);
                 return null;
             }
 
             if (data) return data;
-
-            // Fallback check in local DB
-            const local = PERSONA_DATABASE.find(p => p.name.toLowerCase() === name.toLowerCase());
-            if (local) {
-                return {
-                    ...local,
-                    avatar_url: local.avatarUrl
-                } as Persona;
-            }
-
             return null;
         } catch (e) {
             console.error("getPersonaByName failed", e);

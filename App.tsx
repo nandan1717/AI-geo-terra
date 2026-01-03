@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef, useEffect, Suspense, useMemo } fr
 // Lazy load the heavy 3D component
 const GlobeScene = React.lazy(() => import('./components/GlobeScene'));
 import UIOverlay from './components/UIOverlay';
+import CreatePostModal from './components/CreatePostModal';
 import { useNews } from './context/NewsContext';
 
 import Auth from './components/Auth';
@@ -76,6 +77,7 @@ const App: React.FC = () => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [showPermissionCard, setShowPermissionCard] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isCreatePostOpen, setIsCreatePostOpen] = useState(false);
 
   // Profile State
   const [userProfileImage, setUserProfileImage] = useState<string | undefined>(undefined);
@@ -198,7 +200,12 @@ const App: React.FC = () => {
     setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
 
     // Auth check
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.error("Session Error:", error);
+        // Alerting to ensure visibility
+        alert(`Authentication Error: ${error.message}`);
+      }
       setSession(session);
       setAuthLoading(false);
 
@@ -230,7 +237,7 @@ const App: React.FC = () => {
           // Fetch user profile and handle Welcome/Login notification
           supabase
             .from('app_profiles_v2')
-            .select('full_name, username, avatar_url')
+            .select('full_name, username, avatar_url, location')
             .eq('id', session.user.id)
             .single()
             .then(({ data: profile }) => {
@@ -241,13 +248,16 @@ const App: React.FC = () => {
               if (profile?.avatar_url) {
                 setUserProfileImage(profile.avatar_url);
               } else {
-                // Fallback to DiceBear if needed, or keeping it undefined to let Sidebar show default icon?
-                // User request says "show the user profile picture". 
-                // If they have one, show it. If not, maybe show DiceBear?
-                // Sidebar defaults to UserIcon if userImage is undefined.
-                // Let's use DiceBear as a nice default like in ProfileModal.
+                // Fallback to DiceBear
                 setUserProfileImage(`https://api.dicebear.com/7.x/avataaars/svg?seed=${profile?.username || session.user.id}`);
               }
+
+              // SMART PERSONA SEEDING (New)
+              // We use the user's location (or a default) to seed relevant local "friends"
+              const userLocation = profile?.location || "San Francisco, CA"; // Default if missing
+              import('./services/personaService').then(({ personaService }) => {
+                personaService.ensureSmartPersonas(firstName, userLocation);
+              });
 
               const hasSeenWelcome = localStorage.getItem('mortals_welcome_notification');
               if (!hasSeenWelcome) {
@@ -320,9 +330,13 @@ const App: React.FC = () => {
     if (session?.user) {
       import('./services/supportService').then(({ supportService }) => {
         // Request notification permission immediately
+        // REMOVED: Notification prompting can only be done from a user gesture.
+        // We rely on NotificationPermissionCard for this now.
+        /* 
         if ('Notification' in window && Notification.permission === 'default') {
           Notification.requestPermission();
-        }
+        } 
+        */
 
         // Delay slightly to not compete with initial load
         setTimeout(() => {
@@ -595,22 +609,34 @@ const App: React.FC = () => {
 
   // New Handler for Resuming from Profile
   const handleResumeSession = useCallback(async (sessionId: string, savedPersona: LocalPersona, location: LocationMarker) => {
-    setIsLoadingCrowd(true); // Show loading
+    // Determine if it's a story chat
+    const isStory = savedPersona.origin === 'story' || location.isStory;
+
+    // Only show loading crowd/sector scan if it's a REAL map location
+    if (!isStory) {
+      setIsLoadingCrowd(true);
+    }
+
     try {
       const { chatService } = await import('./services/chatService');
       const messages = await chatService.getSessionMessages(sessionId);
 
       // Restore State
-      setMarkers([location]);
+      // Always set selectedMarker so chat context exists (handleSendMessage requires it)
       setSelectedMarker(location);
+
+      // Only visually place it on the map/globe if it's NOT a story-based session
+      // We check persona.origin because it persists in the JSON payload
+      if (savedPersona.origin !== 'story') {
+        setMarkers([location]);
+        if (globeRef.current) {
+          globeRef.current.flyTo(location.latitude, location.longitude);
+        }
+      }
+
       setPersona(savedPersona);
       setChatHistory(messages);
       setCurrentSessionId(sessionId);
-
-      // Fly to location
-      if (globeRef.current) {
-        globeRef.current.flyTo(location.latitude, location.longitude);
-      }
 
     } catch (e) {
       console.error("Failed to resume session:", e);
@@ -692,6 +718,8 @@ const App: React.FC = () => {
           showPermissionCard={showPermissionCard}
           onPermissionGranted={handlePermissionGranted}
           onPermissionDismiss={handlePermissionDismiss}
+          onPostClick={() => setIsCreatePostOpen(true)}
+
 
         />
 
@@ -700,6 +728,16 @@ const App: React.FC = () => {
           steps={tutorialPhase === 'initial' ? initialTutorialSteps : postSearchTutorialSteps}
           onComplete={handleTutorialComplete}
           onSkip={handleTutorialComplete}
+        />
+
+        <CreatePostModal
+          isOpen={isCreatePostOpen}
+          onClose={() => setIsCreatePostOpen(false)}
+          onPostCreated={() => {
+            setIsCreatePostOpen(false);
+            // Optionally refresh feed or markers here
+            // For now just close
+          }}
         />
 
         {/* Universal Support Chat (Atlas AI) */}

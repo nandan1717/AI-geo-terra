@@ -126,7 +126,7 @@ export const socialService = {
         if (error) throw error;
     },
 
-    async fetchPosts(userId?: string) {
+    async fetchPosts(userId?: string, postType?: 'global' | 'story' | 'local', since?: string) {
         const { data: { user } } = await supabase.auth.getUser();
 
         let query = supabase
@@ -141,6 +141,14 @@ export const socialService = {
 
         if (userId) {
             query = query.eq('user_id', userId);
+        }
+
+        if (postType) {
+            query = query.eq('post_type', postType);
+        }
+
+        if (since) {
+            query = query.gte('created_at', since);
         }
 
         // If logged in, show own hidden posts + all visible posts
@@ -174,11 +182,16 @@ export const socialService = {
             }));
     },
 
+    async fetchGlobalPosts() {
+        return this.fetchPosts(undefined, 'global');
+    },
+
     async createPost(
         file: File | null,
         caption: string,
         location: { name: string, lat: number, lng: number, region?: string, country?: string, continent?: string } | null,
-        rarity?: { score: number, isExtraordinary: boolean, continent?: string | null }
+        rarity?: { score: number, isExtraordinary: boolean, continent?: string | null },
+        postType: 'global' | 'story' | 'local' = 'local'
     ) {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) throw new Error("Not authenticated");
@@ -201,24 +214,31 @@ export const socialService = {
             continent: null
         };
 
-        // 1. Handle Image Upload & XP (Only if Image AND Location are provided)
-        if (file && location) {
+        // 1. Handle Image Upload (If file is provided)
+        if (file) {
+            console.log("Starting image upload...", file.name);
             const fileExt = file.name.split('.').pop();
             const fileName = `${user.id}/${Date.now()}.${fileExt}`;
             const { error: uploadError } = await supabase.storage
                 .from('social_media')
                 .upload(fileName, file);
 
-            if (uploadError) throw uploadError;
+            if (uploadError) {
+                console.error("Upload failed:", uploadError);
+                throw uploadError;
+            }
 
             const { data: { publicUrl: url } } = supabase.storage
                 .from('social_media')
                 .getPublicUrl(fileName);
 
+            console.log("Image uploaded successfully, URL:", url);
             publicUrl = url;
-            finalLocation = { ...location };
+        }
 
-            // 2. Calculate XP (Simplified: 1 XP per post/city)
+        // 2. Handle Location Stats & XP (Only if Location is provided)
+        if (location) {
+            finalLocation = { ...location };
             xpGained = 1;
 
             // Fetch current profile for Stats Update
@@ -272,7 +292,7 @@ export const socialService = {
             .from('app_posts')
             .insert({
                 user_id: user.id,
-                image_url: publicUrl, // Can be null now
+                image_url: publicUrl,
                 caption: caption,
                 location_name: finalLocation.name,
                 location_lat: finalLocation.lat,
@@ -283,7 +303,8 @@ export const socialService = {
                 is_extraordinary: rarity?.isExtraordinary || false,
                 country: finalLocation.country,
                 region: finalLocation.region,
-                continent: rarity?.continent || finalLocation.continent
+                continent: rarity?.continent || finalLocation.continent,
+                post_type: postType
             })
             .select()
             .single();

@@ -10,8 +10,9 @@ DECLARE
 BEGIN
   -- 1. Generate a safe, regex-compliant username
   -- Format: "user*<first-8-chars-of-uuid>"
-  -- Regex satisfied: ^[a-z0-9*]+$ (uuids are hex, so 0-9, a-f)
-  default_username := 'user*' || SUBSTRING(new.id::text FROM 1 FOR 8);
+  -- Regex satisfied: ^[a-z0-9*]+$ 
+  -- Reverting to use '*' as requested by user.
+  default_username := 'user*' || LOWER(SUBSTRING(new.id::text FROM 1 FOR 8));
 
   -- 2. Extract metadata with safe fallbacks
   -- Google usually provides 'full_name' and 'avatar_url' in raw_user_meta_data

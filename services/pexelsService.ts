@@ -25,6 +25,7 @@ export interface PexelsPhoto {
 }
 
 const PEXELS_VIDEO_API_URL = "https://api.pexels.com/videos/search";
+let isRateLimited = false;
 
 export interface PexelsVideo {
     id: number;
@@ -76,12 +77,24 @@ export const pexelsService = {
      * @param perPage Number of results (default 1)
      */
     searchVideos: async (query: string, perPage: number = 1): Promise<PexelsVideo[]> => {
+        if (isRateLimited) {
+            console.warn("Pexels API Rate Limited - Skipping request");
+            return [];
+        }
+
         try {
             const response = await fetch(`${PEXELS_VIDEO_API_URL}?query=${encodeURIComponent(query)}&per_page=${perPage}&orientation=portrait`, {
                 headers: {
                     Authorization: PEXELS_API_KEY
                 }
             });
+
+            if (response.status === 429) {
+                console.warn("Pexels API Rate Limit Reached (429). Pausing requests for 60s.");
+                isRateLimited = true;
+                setTimeout(() => isRateLimited = false, 60000);
+                return [];
+            }
 
             if (!response.ok) {
                 console.warn(`Pexels Video API Error: ${response.status}`);

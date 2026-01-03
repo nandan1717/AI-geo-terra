@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Search, MapPin, X, Loader2, Radio, Info, Users, Send, Navigation, Globe, ChevronLeft, Sparkles, Activity, AlertCircle as AlertIcon, LogOut, HelpCircle, User as UserIcon, Clock, Minus } from 'lucide-react';
+import { Search, MapPin, X, Loader2, Radio, Info, Users, Send, Navigation, Globe, ChevronLeft, Sparkles, Activity, AlertCircle as AlertIcon, LogOut, HelpCircle, User as UserIcon, Clock, Minus, Settings as SettingsPanelIcon } from 'lucide-react';
 import { LocationMarker, SearchState, LocalPersona, ChatMessage, CrowdMember, Notification } from '../types';
 
 import WeatherTimeDisplay from './WeatherTimeDisplay';
@@ -66,6 +66,7 @@ interface UIOverlayProps {
     showPermissionCard?: boolean;
     onPermissionGranted: (token: string) => void;
     onPermissionDismiss: () => void;
+    onPostClick?: () => void;
     lockdownMode?: boolean;
 
 }
@@ -119,6 +120,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
     onPermissionDismiss,
     lockdownMode = false,
     onChatToggle,
+    onPostClick,
 }) => {
     const { isNewsFeedOpen, toggleNewsFeed, newsEvents } = useNews();
     const [inputValue, setInputValue] = useState('');
@@ -145,7 +147,20 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
         const checkMobile = () => setIsMobile(window.innerWidth < 768);
         checkMobile();
         window.addEventListener('resize', checkMobile);
-        return () => window.removeEventListener('resize', checkMobile);
+
+        // Listen for Profile View Events (Global Feed)
+        const handleViewProfile = (e: CustomEvent<{ userId: string }>) => {
+            if (e.detail?.userId) {
+                setViewingProfileId(e.detail.userId);
+                setIsProfileOpen(true);
+            }
+        };
+        window.addEventListener('geo-terra:view-profile', handleViewProfile as EventListener);
+
+        return () => {
+            window.removeEventListener('resize', checkMobile);
+            window.removeEventListener('geo-terra:view-profile', handleViewProfile as EventListener);
+        }
     }, []);
 
     // Lockdown Mode Effect
@@ -307,22 +322,16 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                             setIsAddFriendsOpen(false);
                             setIsRealFriendsOpen(false);
                         }}
-                        onSettingsClick={() => {
-                            setIsSettingsPanelOpen(!isSettingsPanelOpen);
-                            setIsNotificationPanelOpen(false);
-                            setIsAddFriendsOpen(false); // Close AI Chats
-                            setIsRealFriendsOpen(false);
-                        }}
                         unreadNotifications={notifications.filter(n => !n.read).length}
                         profileId="step-3-profile"
                         chatsId="step-4-add-friends" // Keeping ID for tutorial
                         addFriendsId="real-friends-btn"
                         notificationsId="notification-btn"
-                        settingsId="settings-btn"
                         userImage={userImage}
 
                         // Injecting News Toggle into Sidebar
                         onNewsClick={toggleNewsFeed}
+                        onPostClick={onPostClick}
                     />
 
                 </>
@@ -373,6 +382,8 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                         onMarkAsRead={onMarkAsRead}
                         onMarkAllAsRead={onMarkAllAsRead}
                         onDelete={onDeleteNotification}
+                        onResumeSession={onResumeSession}
+                        onChatToggle={onChatToggle || (() => { })}
                     />
                 )
             }
@@ -517,6 +528,21 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                                     </div>
                                 )}
                             </div>
+
+                            {/* Settings Button (Moved Here) */}
+                            <button
+                                id="settings-btn"
+                                onClick={() => {
+                                    setIsSettingsPanelOpen(!isSettingsPanelOpen);
+                                    setIsNotificationPanelOpen(false);
+                                    setIsAddFriendsOpen(false);
+                                    setIsRealFriendsOpen(false);
+                                }}
+                                className="w-12 h-12 md:w-12 md:h-12 bg-black/60 backdrop-blur-xl border border-white/20 rounded-full flex items-center justify-center text-white hover:bg-white/10 transition-all active:scale-95 shadow-2xl relative group flex"
+                                title="Settings"
+                            >
+                                <SettingsPanelIcon size={20} />
+                            </button>
                         </div>
                     </div>
                 )

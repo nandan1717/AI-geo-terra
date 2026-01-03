@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState, useRef } from 'react';
-import { Story, StoryItem } from '../types';
+import { Story, StoryItem, ChatMessage } from '../types';
 import { aiContentService } from '../services/aiContentService';
 import { chatService } from '../services/chatService';
 import { X, Heart, Send } from 'lucide-react';
@@ -11,75 +11,257 @@ export const StoryBar: React.FC = () => {
     const [stories, setStories] = useState<Story[]>([]);
     const [activeStoryIdx, setActiveStoryIdx] = useState<number | null>(null);
     const [progress, setProgress] = useState(0);
+    const [isReplying, setIsReplying] = useState(false);
+    const [isGenerating, setIsGenerating] = useState(false);
     const videoRef = useRef<HTMLVideoElement>(null);
+
+    // Force Pause Logic
+    useEffect(() => {
+        if ((isReplying || isGenerating) && videoRef.current) {
+            videoRef.current.pause();
+        } else if (!isReplying && !isGenerating && videoRef.current && activeStoryIdx !== null) {
+            // Resume video when not replying/generating
+            videoRef.current.play();
+        }
+    }, [isReplying, isGenerating, activeStoryIdx]);
 
     // Load / Init Stories
     useEffect(() => {
         const initStories = async () => {
             try {
-                // 1. Get latest chat persona
-                // We wrap this in try-catch to avoid breaking if chatService fails (e.g. auth)
-                let latestPersonaName: string | undefined;
-                try {
-                    const recentSessions = await chatService.getRecentSessions();
-                    if (recentSessions.length > 0) {
-                        latestPersonaName = recentSessions[0].persona_name;
-                    }
-                } catch (err) {
-                    console.warn("Could not fetch recent sessions for story bar", err);
-                }
+                // 1. Fetch Real Stories (Last 6 Hours only)
+                const { socialService } = await import('../services/socialService');
+                const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+                const realPosts = await socialService.fetchPosts(undefined, 'story', sixHoursAgo);
+                let realStories: Story[] = [];
 
-                const stored = localStorage.getItem(STORAGE_KEY);
-                if (stored) {
-                    const parsed: Story[] = JSON.parse(stored);
-                    const now = Date.now();
-
-                    // Check if valid and not expired (using first story's expiry as batch proxy)
-                    const isValid = parsed.length > 0 && parsed[0].expiresAt > now;
-
-                    // Check if priority persona is present (if we have one)
-                    const hasLatestPersona = !latestPersonaName || parsed.some(s => s.user.name === latestPersonaName);
-
-                    if (isValid && hasLatestPersona) {
-                        // Re-sort local cache to put latest persona first
-                        if (latestPersonaName) {
-                            const pIndex = parsed.findIndex(s => s.user.name === latestPersonaName);
-                            if (pIndex > 0) {
-                                const [pStory] = parsed.splice(pIndex, 1);
-                                parsed.unshift(pStory);
-                            }
+                if (realPosts && realPosts.length > 0) {
+                    const storyMap = new Map<string, Story>();
+                    realPosts.forEach(post => {
+                        const userId = post.user_id;
+                        if (!storyMap.has(userId)) {
+                            storyMap.set(userId, {
+                                id: userId,
+                                user: {
+                                    name: post.user.full_name,
+                                    handle: post.user.username,
+                                    avatarUrl: post.user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.user.username}`,
+                                    isAi: false
+                                },
+                                items: [],
+                                viewed: false,
+                                expiresAt: new Date(post.created_at).getTime() + 6 * 60 * 60 * 1000 // Expire 6h after creation
+                            });
                         }
-                        setStories(parsed);
-                        return;
+                        const story = storyMap.get(userId)!;
+                        story.items.push({
+                            id: post.id.toString(),
+                            type: 'image',
+                            url: post.image_url || 'https://via.placeholder.com/400x800',
+                            duration: 5000,
+                            caption: post.caption,
+                            takenAt: post.created_at
+                        });
+                    });
+                    realStories = Array.from(storyMap.values());
+                }
+
+                // 2. Fetch/Generate AI Stories (Always fetch to keep bar populated)
+                let aiStories: Story[] = [];
+                const storedAi = localStorage.getItem(STORAGE_KEY + '_ai');
+                if (storedAi) {
+                    const parsed = JSON.parse(storedAi);
+                    if (parsed.length > 0 && parsed[0].expiresAt > Date.now()) {
+                        aiStories = parsed;
                     }
                 }
 
-                // Gen new batch
-                console.log("Generating new Story Batch...", latestPersonaName);
-                const newStories = await aiContentService.generateStoryBatch(8, latestPersonaName);
-                setStories(newStories);
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(newStories));
+                if (aiStories.length === 0) {
+                    // Get latest persona for context
+                    let latestPersonaName: string | undefined;
+                    try {
+                        const recentSessions = await chatService.getRecentSessions();
+                        if (recentSessions.length > 0) latestPersonaName = recentSessions[0].persona_name;
+                    } catch (e) { }
+
+                    console.log("Generating new AI Story Batch...");
+                    aiStories = await aiContentService.generateStoryBatch(8, latestPersonaName);
+                    localStorage.setItem(STORAGE_KEY + '_ai', JSON.stringify(aiStories));
+                }
+
+                // 3. Merge: Real Stories First, then AI Stories
+                const combinedStories = [...realStories, ...aiStories];
+                console.log("Stories updated:", combinedStories.length);
+
+                // Deduplicate by user ID just in case
+                const uniqueStories = Array.from(new Map(combinedStories.map(s => [s.user.handle, s])).values());
+
+                setStories(uniqueStories);
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(uniqueStories));
 
             } catch (e) {
                 console.error("Story load failed", e);
             }
         };
 
+        // Initial Load
         initStories();
+
+        // Listen for new stories
+        const handleNewStory = () => {
+            console.log("New story event received, refreshing...");
+            initStories();
+        };
+        window.addEventListener('geo-terra:story-created', handleNewStory);
+
+        return () => {
+            window.removeEventListener('geo-terra:story-created', handleNewStory);
+        };
     }, []);
 
-    // Story Playback Timer
+    // Story Playback Timer & Auto-Advance
     useEffect(() => {
         if (activeStoryIdx === null) return;
         const story = stories[activeStoryIdx];
         if (!story) return;
 
+        // Pause timer if replying or generating
+        if (isReplying || isGenerating) return;
+
+        console.log("Playing story:", story);
         setProgress(0);
 
-        // Auto-advance logic handled by video 'onEnded' usually, 
-        // but let's add a fallback timer for safety or if images used later.
+        const currentItem = story.items[0];
+        let timer: NodeJS.Timeout;
 
-    }, [activeStoryIdx]);
+        // If it's an image, we need to manually drive progress and advance
+        if (currentItem.type === 'image') {
+            const duration = currentItem.duration || 5000;
+            const startTime = Date.now();
+
+            timer = setInterval(() => {
+                const elapsed = Date.now() - startTime;
+                const newProgress = Math.min(100, (elapsed / duration) * 100);
+                setProgress(newProgress);
+
+                if (elapsed >= duration) {
+                    clearInterval(timer);
+                    handleNext();
+                }
+            }, 50);
+        }
+
+        return () => {
+            if (timer) clearInterval(timer);
+        };
+
+    }, [activeStoryIdx, stories, isReplying, isGenerating]); // Removed recursive dependency on stories causing loops, using index mainly
+    const handleReply = async (text: string) => {
+        if (!activeStoryIdx || !stories[activeStoryIdx]) return;
+
+        setIsGenerating(true);
+
+        const story = stories[activeStoryIdx];
+        const user = story.user;
+
+        console.log(`Replying to ${user.handle}: ${text}`);
+
+        // 1. Close Story (Removed default close, moved to end)
+        // handleClose();
+
+        // 2. Identify/Create Persona
+        // If it's an AI story (isAi=true) or we treat all stories as potential connections
+        // ideally we fetch from personaService or use story user data
+        const { personaService } = await import('../services/personaService');
+        const { chatService } = await import('../services/chatService');
+        const { createNotification } = await import('../services/notificationService');
+        const { chatWithPersona } = await import('../services/geminiService');
+
+        // 2a. Infer Location Context
+        // Try to get a real location from the caption so we don't pin (0,0) on the globe
+        const { inferLocationFromCaption } = await import('../services/geminiService');
+        const inferred = await inferLocationFromCaption(story.items[0].caption || '');
+
+        const mockLocation: any = {
+            id: inferred ? `loc_${Date.now()}` : 'story-loc', // Unique ID if real
+            name: inferred?.name || 'Unknown Location',
+            latitude: inferred?.lat || 0,
+            longitude: inferred?.lng || 0,
+            description: story.items[0].caption || 'Story',
+            // If we have 0,0, we might want to flag it so the map doesn't render a marker?
+            // For now, let's hope inference works or user ignores "Unknown" if it doesn't fly.
+            isUnknown: !inferred,
+            isStory: true // Flag to suppress map marker
+        };
+
+        // 2. Fetch/Generate Persona Data
+        let localPersona: any = null;
+
+        if (user.isAi) {
+            const existing = await personaService.getPersonaByName(user.name);
+            if (existing) {
+                localPersona = {
+                    ...existing,
+                    imageUrl: user.avatarUrl // Ensure consistency
+                };
+            }
+        }
+
+        // If still null (New AI or fallback), GENERATE rich profile
+        if (!localPersona) {
+            const { generatePersonaFromStory } = await import('../services/geminiService');
+            localPersona = await generatePersonaFromStory(
+                user.name,
+                user.avatarUrl,
+                story.items[0].caption || 'Checking in',
+                story.items[0].type
+            );
+        }
+
+        // Force origin to story for map suppression
+        localPersona.origin = 'story';
+
+        try {
+            // 3. Create/Get Session
+            // We use createSession which handles DB insertion
+            const session = await chatService.createSession(localPersona, mockLocation);
+
+            // 4. Save User Message
+            await chatService.saveMessage(session.id, { role: 'user', text });
+
+            // 5. Trigger AI Response (Async)
+            // Pass Story Context explicitly to the MCP, NOT as a fake history message.
+            const storyContext = `User is replying to a ${story.items[0].type} story. Caption: "${story.items[0].caption || 'Checking in...'}"`;
+
+            // Clean history (just previous messages if any, here we just have user's new message)
+            const conversationHistory: ChatMessage[] = [{ role: 'user', text }];
+
+            chatWithPersona(localPersona, 'Story Context', conversationHistory, text, storyContext).then(async (response) => {
+                const aiText = response.text;
+
+                // 6. Save AI Message
+                await chatService.saveMessage(session.id, { role: 'model', text: aiText });
+
+                // 7. Trigger Notification Popup
+                await createNotification(localStorage.getItem('user_id_v2')!, 'NEW_MESSAGE', {
+                    senderName: localPersona.name,
+                    message: aiText,
+                    senderAvatar: localPersona.avatarUrl,
+                    sessionId: session.id, // Payload to open chat later
+                    uniqueId: `reply_${Date.now()}` // Ensure it pops
+                });
+
+            }).catch(err => console.error("Reply AI Gen failed", err));
+
+            // Success - Close Story
+            setIsGenerating(false);
+            handleClose();
+
+        } catch (e) {
+            console.error("Handle Reply Failed", e);
+            setIsGenerating(false);
+        }
+    };
 
     const handleOpenStory = (index: number) => {
         setActiveStoryIdx(index);
@@ -93,6 +275,8 @@ export const StoryBar: React.FC = () => {
     const handleClose = () => {
         setActiveStoryIdx(null);
         setProgress(0);
+        setIsReplying(false);
+        setIsGenerating(false);
     };
 
     const handleNext = () => {
@@ -200,28 +384,49 @@ export const StoryBar: React.FC = () => {
                             </button>
                         </div>
 
-                        {/* Video Layer */}
+                        {/* Media Layer (Image or Video) */}
                         <div className="flex-1 relative bg-black group" onClick={(e) => {
                             const width = e.currentTarget.offsetWidth;
                             const x = e.nativeEvent.offsetX;
                             if (x < width / 3) handlePrev();
                             else if (x > width * 2 / 3) handleNext();
                         }}>
-                            <video
-                                ref={videoRef}
-                                src={activeStory.items[0].url}
-                                className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity"
-                                autoPlay
-                                playsInline
-                                muted={false} // Enable Sound
-                                onTimeUpdate={(e) => {
-                                    const v = e.currentTarget;
-                                    if (v.duration) {
-                                        setProgress((v.currentTime / v.duration) * 100);
-                                    }
-                                }}
-                                onEnded={handleNext}
-                            />
+                            {activeStory.items[0].type === 'video' ? (
+                                <video
+                                    ref={videoRef}
+                                    src={activeStory.items[0].url}
+                                    className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity"
+                                    autoPlay
+                                    playsInline
+                                    muted={false}
+                                    onTimeUpdate={(e) => {
+                                        const v = e.currentTarget;
+                                        if (v.duration) {
+                                            setProgress((v.currentTime / v.duration) * 100);
+                                        }
+                                    }}
+                                    onEnded={handleNext}
+                                />
+                            ) : (
+                                <>
+                                    <img
+                                        src={activeStory.items[0].url}
+                                        className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity"
+                                        alt={`Story by ${activeStory.user.handle}`}
+                                        onError={(e) => {
+                                            console.error("Image failed to load:", activeStory.items[0].url);
+                                            e.currentTarget.src = "https://via.placeholder.com/400x800?text=Image+Load+Error";
+                                        }}
+                                        onLoad={() => {
+                                            console.log("Image loaded successfully:", activeStory.items[0].url);
+                                        }}
+                                    />
+                                    {/* Debug overlay to see if URL is present - remove in production checks if desired, but helpful now */}
+                                    {/* <div className="absolute top-20 left-4 bg-black/50 text-white text-xs p-2 max-w-[80%] break-all z-50 pointer-events-none">
+                                        DEBUG: {activeStory.items[0].url}
+                                    </div> */}
+                                </>
+                            )}
                             <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/80 pointer-events-none" />
 
                             {/* AI Content Caption - Restored to Bottom (Safe Area) */}
@@ -236,14 +441,32 @@ export const StoryBar: React.FC = () => {
 
                         {/* Bottom Interactions */}
                         <div className="absolute bottom-0 left-0 w-full p-6 z-30 flex items-center gap-4">
-                            <div className="flex-1 h-12 bg-white/5 backdrop-blur-xl rounded-full border border-white/10 px-5 flex items-center text-white/50 text-sm hover:bg-white/10 transition-colors cursor-text">
-                                Reply to {activeStory.user.name.split(' ')[0]}...
-                            </div>
+                            <form
+                                className="flex-1 flex gap-2"
+                                onSubmit={(e) => {
+                                    e.preventDefault();
+                                    const input = e.currentTarget.querySelector('input') as HTMLInputElement;
+                                    if (input.value.trim()) {
+                                        handleReply(input.value.trim());
+                                        input.value = '';
+                                    }
+                                }}
+                            >
+                                <input
+                                    type="text"
+                                    placeholder={`Reply to ${activeStory.user.name.split(' ')[0]}...`}
+                                    className="flex-1 h-12 bg-white/5 backdrop-blur-xl rounded-full border border-white/10 px-5 text-white text-sm placeholder:text-white/50 focus:bg-white/10 focus:border-white/30 outline-none transition-all"
+                                    onKeyDown={(e) => e.stopPropagation()}
+                                    onFocus={() => setIsReplying(true)}
+                                    onBlur={() => setIsReplying(false)}
+                                    disabled={isGenerating}
+                                />
+                                <button type="submit" disabled={isGenerating} className="w-12 h-12 rounded-full bg-white/5 backdrop-blur-xl border border-white/10 flex items-center justify-center text-white hover:bg-blue-500/20 hover:text-blue-400 hover:border-blue-500/50 transition-all group shrink-0 disabled:opacity-50">
+                                    {isGenerating ? <div className="w-4 h-4 border-2 border-white/50 border-t-transparent rounded-full animate-spin" /> : <Send size={22} className="group-hover:scale-110 transition-transform -ml-0.5 mt-0.5" />}
+                                </button>
+                            </form>
                             <button className="w-12 h-12 rounded-full bg-white/5 backdrop-blur-xl border border-white/10 flex items-center justify-center text-white hover:bg-cyan-500/20 hover:text-cyan-400 hover:border-cyan-500/50 transition-all group">
                                 <Heart size={24} className="group-hover:scale-110 transition-transform" />
-                            </button>
-                            <button className="w-12 h-12 rounded-full bg-white/5 backdrop-blur-xl border border-white/10 flex items-center justify-center text-white hover:bg-blue-500/20 hover:text-blue-400 hover:border-blue-500/50 transition-all group">
-                                <Send size={22} className="group-hover:scale-110 transition-transform -ml-0.5 mt-0.5" />
                             </button>
                         </div>
 

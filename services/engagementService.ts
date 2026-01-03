@@ -10,6 +10,7 @@ interface UserState {
     lastLocation?: string;
     visitedLocations: string[];
     daysInactive: number;
+    lastPostDate?: Date; // Added for engagement checks
 }
 
 export const engagementService = {
@@ -34,13 +35,28 @@ export const engagementService = {
             const state = await fetchUserState(userId);
 
             // 2. Determine Action
+            // Enhanced Engagement Logic:
+            const daysSincePost = state.postCount > 0 ? 0 : 999; // Simplified for now, should ideally check last_post_date
+
             if (!state.hasProfile) {
                 await triggerNudge(userId, 'COMPLETE_PROFILE');
             } else if (state.postCount === 0) {
                 await triggerNudge(userId, 'FIRST_POST');
+            } else if (daysSincePost > 7) {
+                // Remind to post if inactive
+                await createNotification(userId, 'CONTENT_DROP', {
+                    message: "It's been a while. Share your latest adventure.",
+                });
             } else {
                 // Advanced Engagement
                 await triggerExplorationNudge(userId, state);
+
+                // Profile Stats Reminder (Random chance if they have history)
+                if (state.visitedLocations.length > 5 && Math.random() > 0.7) {
+                    await createNotification(userId, 'ENGAGEMENT_SAYS', {
+                        message: `You've explored ${state.visitedLocations.length} locations. Check your stats!`,
+                    });
+                }
             }
 
             // Update timestamp

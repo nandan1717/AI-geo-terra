@@ -29,6 +29,39 @@ export default function Auth() {
         setShowIntro(false);
     };
 
+    // Check for OAuth errors in URL (Hash or Query)
+    useEffect(() => {
+        // Parse Hash Params
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        let errorDescription = hashParams.get('error_description');
+        let error = hashParams.get('error');
+
+        // Parse Query Params (Fallback)
+        if (!error && !errorDescription) {
+            const searchParams = new URLSearchParams(window.location.search);
+            errorDescription = searchParams.get('error_description');
+            error = searchParams.get('error');
+        }
+
+        console.log("Debug: Checking for Auth Errors", {
+            hash: window.location.hash,
+            search: window.location.search,
+            error,
+            errorDescription
+        });
+
+        if (error || errorDescription) {
+            const finalMessage = errorDescription || error || 'Authentication failed';
+            console.error("Auth Error Detected:", finalMessage);
+            setMessage({
+                type: 'error',
+                text: finalMessage.replace(/\+/g, ' ')
+            });
+            // Clear URL to prevent dirty state
+            window.history.replaceState(null, '', window.location.pathname);
+        }
+    }, []);
+
     const handleAuth = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
@@ -69,7 +102,8 @@ export default function Auth() {
         }
     };
 
-    const handleGoogleLogin = async () => {
+    const handleGoogleLogin = async (e?: React.MouseEvent) => {
+        if (e) e.preventDefault();
         try {
             const { error } = await supabase.auth.signInWithOAuth({
                 provider: 'google',

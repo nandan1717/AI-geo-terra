@@ -5,6 +5,55 @@ import { Notification, NotificationType, NotificationData } from '../types';
 const mockNotifications: Notification[] = [];
 let mockListeners: Array<(notifications: Notification[]) => void> = [];
 
+// Helper to check frequency (Deduplication)
+const shouldSuppressNotification = (type: NotificationType, context: Record<string, any>): boolean => {
+    try {
+        const now = Date.now();
+        const key = `notif_last_${type}`;
+
+        // 1. Global Cooldown per Type (Prevent Bursting)
+        // Default cooldown: 5 minutes for everything
+        const lastSentStr = localStorage.getItem(key);
+        if (lastSentStr) {
+            const lastSent = parseInt(lastSentStr);
+            const cooldownMap: Partial<Record<NotificationType, number>> = {
+                'STORY_UPDATE': 4 * 60 * 60 * 1000, // 4 Hours
+                'NEWS_ALERT': 1 * 60 * 60 * 1000,   // 1 Hour
+                'ENGAGEMENT_SAYS': 24 * 60 * 60 * 1000, // 24 Hours
+                'CONTENT_DROP': 12 * 60 * 60 * 1000 // 12 Hours
+            };
+            const cooldown = cooldownMap[type] || 5 * 60 * 1000; // Default 5 mins
+            if (now - lastSent < cooldown) {
+                console.log(`Suppressing ${type}: Cooldown active`);
+                return true;
+            }
+        }
+
+        // 2. Specific ID Deduplication (For News/Events)
+        if (context.uniqueId) {
+            const idKey = `notif_seen_${context.uniqueId}`;
+            if (localStorage.getItem(idKey)) {
+                console.log(`Suppressing ${type}: Already seen ID ${context.uniqueId}`);
+                return true;
+            }
+        }
+
+        return false;
+    } catch (e) {
+        return false; // Fallback to allow if storage fails
+    }
+};
+
+const recordNotificationSent = (type: NotificationType, context: Record<string, any>) => {
+    try {
+        const now = Date.now();
+        localStorage.setItem(`notif_last_${type}`, now.toString());
+        if (context.uniqueId) {
+            localStorage.setItem(`notif_seen_${context.uniqueId}`, 'true');
+        }
+    } catch (e) { }
+};
+
 /**
  * Get static notification content based on type and context
  */
@@ -44,6 +93,31 @@ const getNotificationTemplate = (
                 title: '⚙️ System Update',
                 message: context.systemMessage || 'System notification'
             };
+        case 'STORY_UPDATE':
+            return {
+                title: '📸 New Stories',
+                message: context.message || 'Check out what is happening around the world.'
+            };
+        case 'NEWS_ALERT':
+            return {
+                title: '📰 Breaking News',
+                message: context.message || 'Major event detected.'
+            };
+        case 'CONTENT_DROP':
+            return {
+                title: '🎥 New Content',
+                message: context.message || 'Fresh visuals just dropped.'
+            };
+        case 'ENGAGEMENT_SAYS':
+            return {
+                title: '👋 Hey!',
+                message: context.message || 'Don\'t forget to update your followers.'
+            };
+        case 'NEW_MESSAGE':
+            return {
+                title: context.senderName ? `💬 ${context.senderName}` : '💬 New Message',
+                message: context.message || 'You have a new message.'
+            };
         default:
             return {
                 title: 'Notification',
@@ -61,8 +135,14 @@ export const createNotification = async (
     context: Record<string, any> = {},
     data?: NotificationData
 ): Promise<void> => {
+    // 1. Deduplication Check
+    if (shouldSuppressNotification(type, context)) return;
+
     // Generate notification content from template
     const { title, message } = getNotificationTemplate(type, context);
+
+    // 2. Record Send (for future suppression)
+    recordNotificationSent(type, context);
 
     const notificationPayload = {
         user_id: userId,

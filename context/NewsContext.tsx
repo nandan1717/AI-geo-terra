@@ -6,13 +6,14 @@ import { aiContentService } from '../services/aiContentService';
 import { fetchGlobalEvents } from '../services/gdeltService';
 
 interface NewsContextType {
-    newsEvents: LocationMarker[]; // The currently visible "buffer" + history
-    allEvents: LocationMarker[]; // The raw fetch
+    newsEvents: LocationMarker[]; // The currently visible items
+    allEvents: LocationMarker[]; // Same as newsEvents in this simpler model
     isLoading: boolean;
     isNewsFeedOpen: boolean;
     toggleNewsFeed: () => void;
     loadMore: () => void;
     refresh: () => void;
+    hasMore: boolean;
 
     // Vibe Control
     selectedVibe: 'High Energy' | 'Chill' | 'Inspiration' | 'Intense' | 'Trending';
@@ -26,206 +27,159 @@ interface NewsContextType {
 const NewsContext = createContext<NewsContextType | undefined>(undefined);
 
 export const NewsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [newsEvents, setNewsEvents] = useState<LocationMarker[]>([]); // What the UI sees
-    const [allEvents, setAllEvents] = useState<LocationMarker[]>([]); // Full buffer from API
+    const [newsEvents, setNewsEvents] = useState<LocationMarker[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [isNewsFeedOpen, setIsNewsFeedOpen] = useState(false);
+    const [hasMore, setHasMore] = useState(true);
 
     const [selectedVibe, setSelectedVibe] = useState<'High Energy' | 'Chill' | 'Inspiration' | 'Intense' | 'Trending'>('Trending');
     const [focusedEventId, setFocusedEventId] = useState<string | null>(null);
 
-    // Pagination / buffering state
-    const [displayCount, setDisplayCount] = useState(10);
-    const [offset, setOffset] = useState(0);
-    const seenUrlsRef = useRef<Set<string>>(new Set());
+    // Track seen IDs to absolutely prevent duplicates (React Key Collision Fix)
+    const seenIdsRef = useRef<Set<string>>(new Set());
 
-    // Cycle Displayed News (for Globe Spin)
-    const cycleNews = useCallback(() => {
-        if (allEvents.length <= 10) return; // Not enough to cycle
+    // Track how many GDELT items we have fetched to ask for the next batch correctly
+    const gdeltCountRef = useRef(0);
 
-        setOffset(prev => {
-            const nextOffset = prev + 10;
-            // Wrap around if we run out
-            if (nextOffset >= allEvents.length) return 0;
-            return nextOffset;
-        });
-        // Reset display count to show just a fresh batch of 10
-        setDisplayCount(10);
-    }, [allEvents.length]);
+    // Reset Logic
+    const resetState = () => {
+        setNewsEvents([]);
+        seenIdsRef.current.clear();
+        gdeltCountRef.current = 0;
+        setHasMore(true);
+    };
 
-    // Cache for GDELT news to avoid re-fetching duplicates
-    const newsCacheRef = useRef<LocationMarker[]>([]);
-
-    // Initial Fetch & Refresh Logic
-    const fetchFreshNews = useCallback(async (reset: boolean = false) => {
+    // Core Fetch Logic
+    // nextBatchSize: How many NEW items we want.
+    const fetchNewsBatch = useCallback(async (isReset: boolean = false) => {
+        if (isLoading) return;
         setIsLoading(true);
+
         try {
-            // Get Personalization Context
+            if (isReset) {
+                resetState();
+            }
+
+            // Target counts
+            const BATCH_SIZE = 10;
+            const currentCount = isReset ? 0 : gdeltCountRef.current;
+            const targetGdeltCount = currentCount + BATCH_SIZE;
+
             const personalizedQuery = recommendationService.getPersonalizedQuery();
+            const vibeTopic = selectedVibe === 'Trending' ? 'world events' : selectedVibe.toLowerCase();
 
-            // Reset state if changing vibe
-            if (reset) {
-                setAllEvents([]);
-                setNewsEvents([]);
-                setOffset(0);
-                seenUrlsRef.current.clear();
-                setDisplayCount(10);
-                newsCacheRef.current = []; // Clear cache on hard reset
-            }
+            // PARALLEL FETCHING: 10 GDELT + 10 AI
+            const [fetchedGdeltMarkers, aiPosts] = await Promise.all([
+                fetchGlobalEvents(targetGdeltCount, selectedVibe as any, personalizedQuery).catch(err => {
+                    console.error("GDELT Fetch Failed", err);
+                    return [];
+                }),
+                aiContentService.batchGeneratePosts(BATCH_SIZE, vibeTopic).catch(err => {
+                    console.error("AI Gen Failed", err);
+                    return [];
+                })
+            ]);
 
-            // 1. Get News Batch (from Cache or API)
-            let newsBatch: LocationMarker[] = [];
-
-            if (newsCacheRef.current.length < 10) {
-                // Fetch a large fresh batch (60)
-                // Note: GDELT maxrows=60 gives us a good pool.
-                const freshNews = await fetchGlobalEvents(60, selectedVibe as any, personalizedQuery);
-
-                // Filter duplicates against globally seen URLs
-                const uniqueFresh = freshNews.filter(e => {
-                    const key = e.sourceUrl || e.name;
-                    if (seenUrlsRef.current.has(key)) return false;
-                    return true;
-                });
-
-                // Rank/Score them
-                const rankedFresh = recommendationService.rankItems(uniqueFresh);
-
-                // Append to cache
-                newsCacheRef.current = [...newsCacheRef.current, ...rankedFresh];
-            }
-
-            // Pop 10 items from cache
-            newsBatch = newsCacheRef.current.splice(0, 10);
-
-            // 2. Generate AI Content (10 items to match newsBatch size, or less if news ran out)
-            const count = newsBatch.length > 0 ? newsBatch.length : 10; // Fallback to 10 AI items if no news
-
-            const aiPosts = await aiContentService.batchGeneratePosts(count, selectedVibe === 'Trending' ? 'world events' : selectedVibe.toLowerCase());
-
-            // 3. INTERLEAVE CONTENT (News, AI, News, AI...)
-            const combinedFeed: LocationMarker[] = [];
-            const maxLength = Math.max(newsBatch.length, aiPosts.length);
-
-            for (let i = 0; i < maxLength; i++) {
-                if (newsBatch[i]) combinedFeed.push(newsBatch[i]);
-                if (aiPosts[i]) combinedFeed.push(aiPosts[i]);
-            }
-
-            // 4. Update State
-            const newFreshEvents: LocationMarker[] = [];
-            combinedFeed.forEach(e => {
-                const key = e.sourceUrl || e.name;
-                if (!seenUrlsRef.current.has(key)) {
-                    seenUrlsRef.current.add(key);
-                    newFreshEvents.push(e);
+            // Deduplicate GDELT
+            const newGdeltItems: LocationMarker[] = [];
+            fetchedGdeltMarkers.forEach(item => {
+                if (!seenIdsRef.current.has(item.id)) {
+                    seenIdsRef.current.add(item.id);
+                    newGdeltItems.push(item);
                 }
             });
 
-            if (newFreshEvents.length > 0) {
-                // Determine if we append or replace. 
-                // If it's a "Refresh" manually or initial load, we might want to replace.
-                // But for "background load", we append to the hidden buffer.
+            // GDELT pagination tracking logic
+            // Only update count if we actually got items, or if we assume we moved forward.
+            // GDELT 'maxrows' is absolute, so we update ref to target.
+            gdeltCountRef.current = targetGdeltCount;
 
-                // For simplicity: We setAllEvents to the new batch + existing remainder?
-                // Or just keep a running list?
-                // Let's keep a running list of "allEvents" which acts as our source of truth.
-                setAllEvents(prev => reset ? newFreshEvents : [...prev, ...newFreshEvents]);
-            } else if (reset) {
-                // If reset and no events, ensure we blank out
-                setAllEvents([]);
+            // Deduplicate AI Posts (assign unique IDs if needed)
+            const newAiItems: LocationMarker[] = [];
+            aiPosts.forEach((p: LocationMarker) => { // Explicit type hint
+                // Ensure ID uniqueness
+                if (!p.id.startsWith('ai-')) p.id = `ai-${Date.now()}-${Math.random()}`;
+                if (!seenIdsRef.current.has(p.id)) {
+                    seenIdsRef.current.add(p.id);
+                    newAiItems.push(p);
+                }
+            });
+
+            if (newGdeltItems.length === 0 && newAiItems.length === 0 && !isReset) {
+                console.log("No new items found. End of feed.");
+                setHasMore(false);
+                setIsLoading(false);
+                return;
             }
 
-            // If this was an initial load and we have no displayed events, fill them.
+            // INTERLEAVE: 1 GDELT, 1 AI, 1 GDELT, 1 AI...
+            const interleaved: LocationMarker[] = [];
+            const maxLength = Math.max(newGdeltItems.length, newAiItems.length);
+
+            for (let i = 0; i < maxLength; i++) {
+                if (i < newGdeltItems.length) interleaved.push(newGdeltItems[i]);
+                if (i < newAiItems.length) interleaved.push(newAiItems[i]);
+            }
+
             setNewsEvents(prev => {
-                if (prev.length === 0 && newFreshEvents.length > 0) {
-                    return newFreshEvents.slice(0, 10);
-                }
-                return prev;
+                if (isReset) return interleaved;
+                return [...prev, ...interleaved];
             });
 
         } catch (e) {
-            console.error(e);
+            console.error("News Fetch Error:", e);
         } finally {
             setIsLoading(false);
         }
+    }, [selectedVibe, isLoading]);
+
+    // Initial Load & Vibe Change
+    useEffect(() => {
+        if (isNewsFeedOpen) {
+            // Check if we need to load initially
+            // Or if vibe changed?
+            // Simple rule: If empty, load.
+            // But we need to handle Vibe switching clearing the list.
+            // We'll trust the "Refresh" button or explicit vibe setters to call fetchNewsBatch(true).
+            // But for safety, if we open and it's empty, we fetch.
+            if (gdeltCountRef.current === 0) {
+                fetchNewsBatch(true);
+            }
+        }
+    }, [isNewsFeedOpen, fetchNewsBatch]); // fetchNewsBatch depends on selectedVibe, so this handles vibe changes if we reset properly?
+
+    // Actually explicit vibe change effect is safer
+    useEffect(() => {
+        // When vibe changes, we WANT to reset.
+        if (isNewsFeedOpen) {
+            fetchNewsBatch(true);
+        } else {
+            // If closed, just reset refs so next open is fresh?
+            resetState();
+        }
     }, [selectedVibe]);
 
-    // Effect: Re-fetch on Vibe Change
-    const lastFetchedVibe = useRef<'High Energy' | 'Chill' | 'Inspiration' | 'Intense' | 'Trending' | null>(null);
 
-    // Consolidated Effect: Handle Initial Load AND Vibe Changes
-    useEffect(() => {
-        if (!isNewsFeedOpen) return;
-        if (isLoading) return;
-
-        // Fetch only if the requested vibe doesn't match what we have (or it's the first run)
-        if (lastFetchedVibe.current !== selectedVibe) {
-
-            lastFetchedVibe.current = selectedVibe;
-            fetchFreshNews(true);
-        }
-    }, [isNewsFeedOpen, selectedVibe, isLoading, fetchFreshNews]);
-
-    // Load More (Infinite Scroll Trigger)
     const loadMore = useCallback(() => {
-        // Increase display count
-        // Check if we have enough in 'allEvents' to satisfy the request
-        const currentLength = newsEvents.length;
-        const potentialNextLength = currentLength + 10;
-
-        if (allEvents.length >= potentialNextLength) {
-            // We have buffered events, just show them
-            setNewsEvents(allEvents.slice(0, potentialNextLength));
-        } else {
-            // We are running low! Trigger a background fetch
-            console.log("Running low on news, background fetching...");
-            fetchFreshNews(false).then(() => {
-                // After fetch, update the UI list with whatever we got
-                setNewsEvents(current => {
-                    // Re-slice from the updated allEvents?
-                    // Actually complex: fetchFreshNews updates allEvents. 
-                    // We need to wait for state update.
-                    // But strictly, we can just bump the slice limit and React will catch up when allEvents grows.
-                    return current; // Wait for effect?
-                });
-            });
-            // Allowing the slice to expand even if empty for now, or wait?
-            // Safer to just expand displayCount reference and let an effect handle "syncing" display list
-            setDisplayCount(prev => prev + 10);
-        }
-    }, [newsEvents.length, allEvents, fetchFreshNews]);
-
-    // Sync effect: When allEvents grows or displayCount changes, update newsEvents
-    useEffect(() => {
-        if (allEvents.length > 0) {
-            setNewsEvents(allEvents.slice(0, displayCount));
-        }
-    }, [allEvents, displayCount]);
-
-    // Initial load when opened (Old effect - REMOVED)
-    // useEffect(() => {
-    //     if (isNewsFeedOpen && allEvents.length === 0) {
-    //         fetchFreshNews();
-    //     }
-    // }, [isNewsFeedOpen, fetchFreshNews, allEvents.length]);
-
-    const toggleNewsFeed = () => setIsNewsFeedOpen(prev => !prev);
-
-    // Helper ref to avoid closure staleness in filter
-    const selectedMarkerRef = useRef<Set<string>>(seenUrlsRef.current);
+        if (!hasMore || isLoading) return;
+        console.log("Loading more news...");
+        fetchNewsBatch(false);
+    }, [hasMore, isLoading, fetchNewsBatch]);
 
     return (
         <NewsContext.Provider value={{
             newsEvents,
-            allEvents,
+            allEvents: newsEvents, // Simplified: they are the same now
             isLoading,
             isNewsFeedOpen,
-            toggleNewsFeed,
+            toggleNewsFeed: () => setIsNewsFeedOpen(p => !p),
             loadMore,
-            refresh: () => fetchFreshNews(true),
+            refresh: () => fetchNewsBatch(true),
+            hasMore,
             selectedVibe,
-            setVibe: setSelectedVibe
+            setVibe: setSelectedVibe,
+            focusedEventId,
+            setFocusedEventId
         }}>
             {children}
         </NewsContext.Provider>

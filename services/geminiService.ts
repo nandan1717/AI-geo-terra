@@ -142,6 +142,37 @@ export const fetchLocationsFromQuery = async (query: string): Promise<LocationMa
   }
 };
 
+// --- 2. LOCATION INFERENCE (NEW) ---
+// --- 2. LOCATION INFERENCE (NEW) ---
+// --- 2. LOCATION INFERENCE (NEW) ---
+export const inferLocationFromCaption = async (caption: string): Promise<{ name: string, lat: number, lng: number } | null> => {
+  try {
+    // Check if we are already seeing 429s recently (simple throttle could go here, but for now just try)
+    const result = await ai.models.generateContent({
+      model: "gemini-2.0-flash-exp",
+      contents: [{
+        role: 'user',
+        parts: [{
+          text: `Extract the most likely real-world location from this text: "${caption}". 
+               If specific city/place mentioned, return JSON { "name": "City, Country", "lat": 12.34, "lng": 56.78 }.
+               If generic (e.g. "Beach day"), pick a famous relevant place (e.g. "Bali, Indonesia").
+               If NO location clue, return null. JSON ONLY.` }]
+      }],
+      config: { responseMimeType: "application/json" }
+    });
+
+    if (!result.text) return null;
+    return JSON.parse(result.text);
+  } catch (e: any) {
+    if (e.toString().includes("429") || e.message?.includes("quota") || e.status === 429) {
+      console.warn("Gemini Quota Exceeded (Location Inference skipped).");
+    } else {
+      console.error("Location inference failed", e);
+    }
+    return null;
+  }
+};
+
 // Helper to fetch GeoJSON from Nominatim (OpenStreetMap)
 // fetchGeoJSON removed as per user request
 
@@ -320,6 +351,75 @@ const saveCrowdToCache = async (location: LocationMarker, members: CrowdMember[]
   }
 }
 
+// --- 3a. STORY PERSONA GENERATION ---
+export const generatePersonaFromStory = async (
+  userName: string,
+  userAvatar: string,
+  storyCaption: string,
+  storyType: 'image' | 'video'
+): Promise<LocalPersona> => {
+  try {
+    const prompt = `
+      Create a hyper-realistic persona profile for a social media user named "${userName}".
+      Context: They just posted a ${storyType} story with caption: "${storyCaption}".
+      Task: Generate a rich backstory and personality.
+      Output strictly valid JSON:
+      {
+        "occupation": "Specific Job (e.g. 'Michelin Chef', 'Alpine Guide')",
+        "bio": "2 lines about their background and what drives them.",
+        "mindset": "Their internal philosophy (e.g. 'Chasing the perfect light').",
+        "age": number (20-40),
+        "vibe": "Short vibe desc (e.g. 'Chill Luxury', 'Wild Spirit')",
+        "lineage": "City, Country of origin",
+        "mood": "Current mood based on story"
+      }
+    `;
+
+    const rawJson = await queryDeepSeek([
+      { role: "system", content: "You are a creative character engine. Output JSON only." },
+      { role: "user", content: prompt }
+    ], true);
+
+    const data = JSON.parse(rawJson);
+
+    return {
+      name: userName,
+      gender: 'Non-binary', // Default, difficult to infer from name alone safely without more data, or we could ask AI to infer gender from name/avatar? Let's leave as generic or infer.
+      // Actually, let's ask AI to infer gender if possible or just use 'Unknown'
+      occupation: data.occupation || 'Explorer',
+      age: data.age || 25,
+      lineage: data.lineage || 'Global Citizen',
+      mindset: data.mindset || 'Open to the world',
+      currentActivity: 'Posting a story',
+      mood: data.mood || 'Excited',
+      bio: data.bio || 'Just exploring.',
+      message: "Hey! Glad you liked my story.",
+      imageUrl: userAvatar,
+      suggestedQuestions: ["Where is this?", "What's next?", "Any tips?"],
+      vibe: data.vibe || 'Friendly'
+    } as LocalPersona;
+
+  } catch (e) {
+    console.error("Persona Gen Failed", e);
+    // Fallback
+    return {
+      name: userName,
+      gender: 'Unknown',
+      occupation: 'Local Guide',
+      age: 28,
+      lineage: 'Unknown',
+      mindset: 'Curious',
+      currentActivity: 'Posting',
+      mood: 'Happy',
+      bio: `Someone sharing moments about: ${storyCaption}`,
+      message: "Hey there!",
+      imageUrl: userAvatar,
+      suggestedQuestions: [],
+      vibe: 'Friendly'
+    } as LocalPersona;
+  }
+};
+
 // --- 3. PERSONA CONNECTION (Gemini Image + DeepSeek Text) ---
 export const connectWithCrowdMember = async (member: CrowdMember, location: LocationMarker): Promise<LocalPersona> => {
   const localTime = getLocalTime(location.longitude);
@@ -406,11 +506,13 @@ export const connectWithCrowdMember = async (member: CrowdMember, location: Loca
 };
 
 // --- 4. CHAT (MCP Integration) ---
+// --- 4. CHAT (MCP Integration) ---
 export const chatWithPersona = async (
   persona: LocalPersona,
   locationName: string,
   history: ChatMessage[],
-  userMessage: string
+  userMessage: string,
+  storyContext?: string // New Parameter
 ): Promise<ChatResponse> => {
 
   // Import dynamically to avoid circular deps if any (though none here)
@@ -425,7 +527,8 @@ export const chatWithPersona = async (
     locationName,
     history,
     userMessage,
-    context
+    context,
+    storyContext
   );
 };
 

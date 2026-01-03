@@ -716,7 +716,8 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, targetUser
             const effectiveUserId = targetUserId || user?.id;
             if (effectiveUserId) {
                 const data = await socialService.fetchPosts(effectiveUserId);
-                setPosts(data);
+                // Filter out stories from proper profile grid
+                setPosts(data.filter(p => p.post_type !== 'story'));
             }
         } catch (error) {
             console.error("Error fetching posts:", error);
@@ -760,6 +761,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, targetUser
                                 <ProfileHeader
                                     profile={profile}
                                     aiLocalsCount={profile.ai_locals_count || 0}
+                                    isOwnProfile={isOwnProfile}
                                     onEdit={() => setIsEditing(true)}
                                 />
 

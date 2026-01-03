@@ -25,6 +25,7 @@ export interface LocationMarker {
   postImageUrl?: string;
   postVideoUrl?: string; // New: Support for video backgrounds
   postCaption?: string;
+  isStory?: boolean; // New: Flag to suppress globe marker
 }
 
 export interface SearchState {
@@ -49,6 +50,7 @@ export interface LocalPersona extends CrowdMember {
   message: string;
   imageUrl: string;
   suggestedQuestions: string[];
+  origin?: 'story' | 'map'; // Track where this persona came from
 }
 
 export interface UserProfile {
@@ -105,7 +107,12 @@ export type NotificationType =
   | 'LOGOUT'
   | 'APP_TIP'
   | 'SYSTEM'
-  | 'WELCOME';
+  | 'WELCOME'
+  | 'STORY_UPDATE'
+  | 'NEWS_ALERT'
+  | 'CONTENT_DROP'
+  | 'ENGAGEMENT_SAYS'
+  | 'NEW_MESSAGE';
 
 export interface Notification {
   id: string;
