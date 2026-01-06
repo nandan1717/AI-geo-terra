@@ -60,11 +60,20 @@ const getProxiedUrl = (url: string | undefined | null) => {
 const checkImage = async (url: string): Promise<boolean> => {
     try {
         const controller = new AbortController();
-        const id = setTimeout(() => controller.abort(), 1500); // 1.5s Timeout
-        const res = await fetch(url, { method: 'HEAD', signal: controller.signal });
+        const id = setTimeout(() => controller.abort(), 5000); // 5s Timeout (Relaxed)
+        const res = await fetch(url, {
+            method: 'HEAD',
+            signal: controller.signal,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (compatible; GeoTerra/1.0;)'
+            }
+        });
         clearTimeout(id);
         return res.ok;
     } catch (e) {
+        // If HEAD fails, it usually means timeout or network error. 
+        // We could default to TRUE if we want to risk broken images over NO images,
+        // but let's stick to true validation for now, just relaxed.
         return false;
     }
 };
