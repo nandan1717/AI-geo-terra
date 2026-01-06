@@ -16,7 +16,7 @@ export const requestForToken = async () => {
         });
 
         if (currentToken) {
-            console.log('FCM Token retrieved:', currentToken);
+
             return currentToken;
         } else {
             console.warn('No registration token available. Request permission to generate one.');
@@ -31,7 +31,7 @@ export const requestForToken = async () => {
 export const deleteFCMToken = async () => {
     try {
         await deleteToken(messaging);
-        console.log('FCM Token deleted.');
+
     } catch (err) {
         console.error('Error deleting FCM token:', err);
     }
@@ -40,7 +40,7 @@ export const deleteFCMToken = async () => {
 export const onMessageListener = () =>
     new Promise((resolve) => {
         onMessage(messaging, (payload) => {
-            console.log("payload", payload);
+
             resolve(payload);
         });
     });

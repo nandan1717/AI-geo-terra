@@ -110,20 +110,47 @@ export const pexelsService = {
     },
 
     /**
-     * Fetches a curated list of photos (if needed, otherwise just uses search with generic terms)
+     * Fetches a curated list of photos from Supabase (previously populated by Edge Function).
      */
     getCuratedPhotos: async (perPage: number = 15): Promise<PexelsPhoto[]> => {
         try {
-            const response = await fetch(`https://api.pexels.com/v1/curated?per_page=${perPage}`, {
-                headers: {
-                    Authorization: PEXELS_API_KEY
-                }
-            });
+            const { supabase } = await import('./supabaseClient');
+            const { data, error } = await supabase
+                .from('pexels_media')
+                .select('*')
+                .eq('media_type', 'image')
+                .order('created_at', { ascending: false })
+                .limit(perPage);
 
-            if (!response.ok) return [];
-            const data = await response.json();
-            return data.photos || [];
+            if (error) {
+                console.error("Supabase Pexels Fetch Error:", error);
+                return [];
+            }
+            if (!data) return [];
+
+            return data.map((p: any) => ({
+                id: p.id,
+                width: 1920, // Default/Placeholder
+                height: 1080, // Default/Placeholder
+                url: p.url,
+                photographer: p.photographer,
+                photographer_url: '',
+                photographer_id: 0,
+                avg_color: '#333333',
+                src: {
+                    original: p.image_url,
+                    large2x: p.image_url,
+                    large: p.image_url,
+                    medium: p.image_url,
+                    small: p.image_url,
+                    portrait: p.image_url,
+                    landscape: p.image_url,
+                    tiny: p.image_url
+                },
+                alt: 'Pexels Photo'
+            }));
         } catch (error) {
+            console.error("Failed to fetch Pexels photos from Supabase:", error);
             return [];
         }
     }

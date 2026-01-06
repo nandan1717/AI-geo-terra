@@ -91,7 +91,7 @@ export const fetchLocationsFromQuery = async (query: string): Promise<LocationMa
         .maybeSingle();
 
       if (data && data.results) {
-        console.log("✅ Global Supabase Cache Hit:", query);
+
         supabase.from('location_search_cache')
           .update({ hit_count: (data.hit_count || 0) + 1 })
           .eq('query', cacheKey)
@@ -255,7 +255,7 @@ export const fetchCrowd = async (location: LocationMarker, customQuery?: string)
       .maybeSingle();
 
     if (data && data.crowd_data) {
-      console.log("Hit Supabase Cache for Crowd:", location.name);
+
       return data.crowd_data as CrowdMember[];
     }
   } catch (err) {
@@ -345,7 +345,7 @@ const saveCrowdToCache = async (location: LocationMarker, members: CrowdMember[]
       longitude: location.longitude,
       crowd_data: members
     });
-    console.log("Saved crowd to Supabase:", location.name);
+
   } catch (e) {
     console.warn("Failed to save to Supabase cache", e);
   }

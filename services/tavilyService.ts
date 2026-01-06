@@ -58,7 +58,7 @@ export class TavilyService {
                 });
             }
 
-            console.log(`[Tavily] Context Fetched for: "${query}"`);
+
             return context;
 
         } catch (error) {

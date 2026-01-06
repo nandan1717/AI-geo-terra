@@ -8,7 +8,7 @@ export class APIUsageTracker {
         // Mask Key: "...Geb1"
         const maskedKey = apiKey && apiKey.length > 4 ? `...${apiKey.slice(-4)}` : 'N/A';
 
-        console.log(`[API] ${provider} (${type}) | Key: ${maskedKey} | Cost: $${estimatedCost.toFixed(4)} | Total: $${this.usage.toFixed(4)}`);
+
 
         try {
             const { supabase } = await import('./supabaseClient');

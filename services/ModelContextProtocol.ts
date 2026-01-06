@@ -42,7 +42,7 @@ export class MCPContextServer {
         const { ServiceCache } = await import('./geminiService');
         const cached = ServiceCache.get<string>(cacheKey);
         if (cached) {
-            console.log(`[MCP] Cache Hit for: "${query}"`);
+
             return cached;
         }
 
@@ -92,7 +92,7 @@ export class MCPContextServer {
             });
 
             const searchQuery = intentRes.text?.trim() || "";
-            console.log(`[MCP] Generated Search Query: "${searchQuery}"`);
+
 
             if (searchQuery === "SKIP" || !searchQuery) {
                 return ""; // No context needed for simple greetings
@@ -111,7 +111,7 @@ export class MCPContextServer {
                 if (tavilyResult) {
                     contextData = tavilyResult;
                     usedProvider = "Tavily";
-                    console.log("[MCP] Used Tavily for context.");
+
                 }
             } catch (e) {
                 console.warn("[MCP] Tavily check failed, proceeding to Gemini.");
@@ -148,7 +148,7 @@ export class MCPContextServer {
                 contextData = searchRes.text || "";
             }
 
-            console.log(`[MCP] Fetched Context (${usedProvider}):`, contextData);
+
 
             // Save to Cache
             if (contextData.length > 20) { // Only cache substantial results

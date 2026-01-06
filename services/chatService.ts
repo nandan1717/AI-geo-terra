@@ -33,7 +33,7 @@ export const chatService = {
             .maybeSingle();
 
         if (existing) {
-            console.log("Found existing session, resuming:", existing.id);
+
             // Optionally update location if needed, but for now just resume conversation
             // If location changed significantly, might want to note it in system context, but keeping same session ID is key.
             return existing as ChatSession;

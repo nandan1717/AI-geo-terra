@@ -24,7 +24,7 @@ const shouldSuppressNotification = (type: NotificationType, context: Record<stri
             };
             const cooldown = cooldownMap[type] || 5 * 60 * 1000; // Default 5 mins
             if (now - lastSent < cooldown) {
-                console.log(`Suppressing ${type}: Cooldown active`);
+
                 return true;
             }
         }
@@ -33,7 +33,7 @@ const shouldSuppressNotification = (type: NotificationType, context: Record<stri
         if (context.uniqueId) {
             const idKey = `notif_seen_${context.uniqueId}`;
             if (localStorage.getItem(idKey)) {
-                console.log(`Suppressing ${type}: Already seen ID ${context.uniqueId}`);
+
                 return true;
             }
         }
@@ -161,7 +161,7 @@ export const createNotification = async (
             .insert(notificationPayload);
 
         if (error) throw error;
-        console.log('📬 Notification created:', { userId, type, title });
+
     } catch (error) {
         console.error('Failed to create notification:', error);
         // Fallback to mock if DB fails

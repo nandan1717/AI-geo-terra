@@ -43,54 +43,10 @@ const NewsCard: React.FC<{ event: LocationMarker; index: number }> = ({ event, i
         if (event.postVideoUrl !== displayVideo && !hasEnhancedDetails) setDisplayVideo(event.postVideoUrl);
     }, [event.description, event.publishedAt, event.postImageUrl, event.postVideoUrl]);
 
-    // Auto-fetch details when card is active (visible) to correct the date/image
-    useEffect(() => {
-        if (isActive && !hasEnhancedDetails && !isLoadingDetails) {
-            handleReadMore(true); // Re-use the fetch logic, but maybe don't expand?
-            // Actually, handleReadMore toggles expansion. We just want the fetch.
-            // Let's extract the fetch logic.
-            fetchDetails();
-        }
-    }, [isActive]);
+    // Auto-fetch deleted - Data is now fully backend driven
 
-    const fetchDetails = async () => {
-        // SKIP AI scan for User Posts to prevent Pexels overwrite
-        if (event.isUserPost) return;
-
-        if (hasEnhancedDetails || isLoadingDetails) return;
-        setIsLoadingDetails(true);
-        try {
-            const { fetchEventDetails } = await import('../services/gdeltService');
-            const details = await fetchEventDetails(event.name);
-            if (details) {
-                if (details.newDesc && details.newDesc.length > (description?.length || 0)) {
-                    setDescription(details.newDesc);
-                }
-                if (details.newDate) setDisplayDate(details.newDate);
-                if (details.newImage) setDisplayImage(details.newImage);
-            }
-            setIsLoadingDetails(false);
-            setHasEnhancedDetails(true);
-        } catch (e) {
-            setIsLoadingDetails(false);
-        }
-    };
-
-    const handleReadMore = async (onlyFetch = false) => {
-        if (typeof onlyFetch !== 'boolean') onlyFetch = false; // Event handler guard
-
-        if (!onlyFetch) {
-            if (isExpanded) {
-                setIsExpanded(false);
-                return;
-            }
-            setIsExpanded(true);
-        }
-
-        // Fetch only if NOT a user post
-        if (!event.isUserPost) {
-            fetchDetails();
-        }
+    const handleReadMore = () => {
+        setIsExpanded(!isExpanded);
     };
 
     // Handle Profile Navigation

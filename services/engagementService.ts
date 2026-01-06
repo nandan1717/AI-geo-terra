@@ -25,7 +25,7 @@ export const engagementService = {
             const lastDate = new Date(lastEngaged);
             // Engage max once every 12 hours
             if (now.getTime() - lastDate.getTime() < 12 * 60 * 60 * 1000) {
-                console.log("Engagement skipped: Frequency cap hit");
+
                 return;
             }
         }

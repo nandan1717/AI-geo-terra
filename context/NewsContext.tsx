@@ -68,19 +68,13 @@ export const NewsProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const personalizedQuery = recommendationService.getPersonalizedQuery();
             const vibeTopic = selectedVibe === 'Trending' ? 'world events' : selectedVibe.toLowerCase();
 
-            // PARALLEL FETCHING: 10 GDELT + 10 AI
-            const [fetchedGdeltMarkers, aiPosts] = await Promise.all([
-                fetchGlobalEvents(targetGdeltCount, selectedVibe as any, personalizedQuery).catch(err => {
-                    console.error("GDELT Fetch Failed", err);
-                    return [];
-                }),
-                aiContentService.batchGeneratePosts(BATCH_SIZE, vibeTopic).catch(err => {
-                    console.error("AI Gen Failed", err);
-                    return [];
-                })
-            ]);
+            // 1. FAST PATH: Fetch GDELT from Supabase (Instant)
+            const fetchedGdeltMarkers = await fetchGlobalEvents(targetGdeltCount, selectedVibe as any, personalizedQuery).catch(err => {
+                console.error("GDELT Fetch Failed", err);
+                return [];
+            });
 
-            // Deduplicate GDELT
+            // Process GDELT Immediately
             const newGdeltItems: LocationMarker[] = [];
             fetchedGdeltMarkers.forEach(item => {
                 if (!seenIdsRef.current.has(item.id)) {
@@ -89,46 +83,46 @@ export const NewsProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }
             });
 
-            // GDELT pagination tracking logic
-            // Only update count if we actually got items, or if we assume we moved forward.
-            // GDELT 'maxrows' is absolute, so we update ref to target.
+            // Render GDELT immediately
+            if (newGdeltItems.length > 0) {
+                setNewsEvents(prev => {
+                    const base = isReset ? [] : prev;
+                    return [...base, ...newGdeltItems];
+                });
+            }
+
+            // Update ref
             gdeltCountRef.current = targetGdeltCount;
 
-            // Deduplicate AI Posts (assign unique IDs if needed)
-            const newAiItems: LocationMarker[] = [];
-            aiPosts.forEach((p: LocationMarker) => { // Explicit type hint
-                // Ensure ID uniqueness
-                if (!p.id.startsWith('ai-')) p.id = `ai-${Date.now()}-${Math.random()}`;
-                if (!seenIdsRef.current.has(p.id)) {
-                    seenIdsRef.current.add(p.id);
-                    newAiItems.push(p);
+            // 2. SLOW PATH: AI Generation (Background)
+            // We do not await this to block the UI, but we track 'loading' state for it?
+            // Actually, if we unset isLoading, the user sees content.
+            // We can let AI generate in background and append.
+            setIsLoading(false); // Unblock UI!
+
+            aiContentService.batchGeneratePosts(BATCH_SIZE, vibeTopic).then(aiPosts => {
+                const newAiItems: LocationMarker[] = [];
+                aiPosts.forEach((p: LocationMarker) => {
+                    if (!p.id.startsWith('ai-')) p.id = `ai-${Date.now()}-${Math.random()}`;
+                    if (!seenIdsRef.current.has(p.id)) {
+                        seenIdsRef.current.add(p.id);
+                        newAiItems.push(p);
+                    }
+                });
+
+                if (newAiItems.length > 0) {
+                    setNewsEvents(prev => {
+                        // Naive append. Ideally interleave, but ensuring speed is key for now.
+                        return [...prev, ...newAiItems];
+                    });
                 }
-            });
+            }).catch(err => console.error("AI Gen Failed", err));
 
-            if (newGdeltItems.length === 0 && newAiItems.length === 0 && !isReset) {
-                console.log("No new items found. End of feed.");
-                setHasMore(false);
-                setIsLoading(false);
-                return;
-            }
-
-            // INTERLEAVE: 1 GDELT, 1 AI, 1 GDELT, 1 AI...
-            const interleaved: LocationMarker[] = [];
-            const maxLength = Math.max(newGdeltItems.length, newAiItems.length);
-
-            for (let i = 0; i < maxLength; i++) {
-                if (i < newGdeltItems.length) interleaved.push(newGdeltItems[i]);
-                if (i < newAiItems.length) interleaved.push(newAiItems[i]);
-            }
-
-            setNewsEvents(prev => {
-                if (isReset) return interleaved;
-                return [...prev, ...interleaved];
-            });
+            // Stop here since we already cleared isLoading
+            return;
 
         } catch (e) {
             console.error("News Fetch Error:", e);
-        } finally {
             setIsLoading(false);
         }
     }, [selectedVibe, isLoading]);

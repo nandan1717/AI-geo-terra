@@ -216,7 +216,7 @@ export const socialService = {
 
         // 1. Handle Image Upload (If file is provided)
         if (file) {
-            console.log("Starting image upload...", file.name);
+
             const fileExt = file.name.split('.').pop();
             const fileName = `${user.id}/${Date.now()}.${fileExt}`;
             const { error: uploadError } = await supabase.storage
@@ -232,7 +232,7 @@ export const socialService = {
                 .from('social_media')
                 .getPublicUrl(fileName);
 
-            console.log("Image uploaded successfully, URL:", url);
+
             publicUrl = url;
         }
 

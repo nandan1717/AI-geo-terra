@@ -31,7 +31,7 @@ export const personaService = {
             }
 
             if (count === 0) {
-                console.log('Seeding Personas...');
+
                 // Seed data uses the mock data
                 const seedData = PERSONA_DATABASE.map(p => ({
                     handle: p.handle,
@@ -50,7 +50,7 @@ export const personaService = {
                 if (insertError) {
                     console.error('Persona seeding failed:', insertError.message);
                 } else {
-                    console.log('Personas seeded successfully.');
+
                 }
             }
         } catch (e) {
@@ -67,11 +67,11 @@ export const personaService = {
         const hasSeeded = localStorage.getItem(smartSeedingKey);
 
         if (hasSeeded) {
-            console.log("Smart personas already seeded.");
+
             return;
         }
 
-        console.log(`Seeding Smart Personas for ${userName} in ${location}...`);
+
 
         try {
             // 1. Generate Smart Data
@@ -88,7 +88,7 @@ export const personaService = {
                 if (error) {
                     console.error("Failed to insert smart personas:", error);
                 } else {
-                    console.log("Smart personas inserted successfully.");
+
                     localStorage.setItem(smartSeedingKey, 'true');
                     // Clear cached stories to force regeneration
                     localStorage.removeItem('geo-terra-stories');

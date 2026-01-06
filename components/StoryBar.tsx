@@ -84,14 +84,14 @@ export const StoryBar: React.FC = () => {
                         if (recentSessions.length > 0) latestPersonaName = recentSessions[0].persona_name;
                     } catch (e) { }
 
-                    console.log("Generating new AI Story Batch...");
+
                     aiStories = await aiContentService.generateStoryBatch(8, latestPersonaName);
                     localStorage.setItem(STORAGE_KEY + '_ai', JSON.stringify(aiStories));
                 }
 
                 // 3. Merge: Real Stories First, then AI Stories
                 const combinedStories = [...realStories, ...aiStories];
-                console.log("Stories updated:", combinedStories.length);
+
 
                 // Deduplicate by user ID just in case
                 const uniqueStories = Array.from(new Map(combinedStories.map(s => [s.user.handle, s])).values());
@@ -109,7 +109,7 @@ export const StoryBar: React.FC = () => {
 
         // Listen for new stories
         const handleNewStory = () => {
-            console.log("New story event received, refreshing...");
+
             initStories();
         };
         window.addEventListener('geo-terra:story-created', handleNewStory);
@@ -128,7 +128,7 @@ export const StoryBar: React.FC = () => {
         // Pause timer if replying or generating
         if (isReplying || isGenerating) return;
 
-        console.log("Playing story:", story);
+
         setProgress(0);
 
         const currentItem = story.items[0];
@@ -164,7 +164,7 @@ export const StoryBar: React.FC = () => {
         const story = stories[activeStoryIdx];
         const user = story.user;
 
-        console.log(`Replying to ${user.handle}: ${text}`);
+
 
         // 1. Close Story (Removed default close, moved to end)
         // handleClose();
@@ -418,7 +418,7 @@ export const StoryBar: React.FC = () => {
                                             e.currentTarget.src = "https://via.placeholder.com/400x800?text=Image+Load+Error";
                                         }}
                                         onLoad={() => {
-                                            console.log("Image loaded successfully:", activeStory.items[0].url);
+
                                         }}
                                     />
                                     {/* Debug overlay to see if URL is present - remove in production checks if desired, but helpful now */}
