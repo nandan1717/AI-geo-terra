@@ -127,30 +127,18 @@ export const NewsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     }, [selectedVibe, isLoading]);
 
-    // Initial Load & Vibe Change
+    // Initial Load
     useEffect(() => {
-        if (isNewsFeedOpen) {
-            // Check if we need to load initially
-            // Or if vibe changed?
-            // Simple rule: If empty, load.
-            // But we need to handle Vibe switching clearing the list.
-            // We'll trust the "Refresh" button or explicit vibe setters to call fetchNewsBatch(true).
-            // But for safety, if we open and it's empty, we fetch.
-            if (gdeltCountRef.current === 0) {
-                fetchNewsBatch(true);
-            }
+        // Fetch immediately on mount to populate the globe
+        if (gdeltCountRef.current === 0) {
+            fetchNewsBatch(true);
         }
-    }, [isNewsFeedOpen, fetchNewsBatch]); // fetchNewsBatch depends on selectedVibe, so this handles vibe changes if we reset properly?
+    }, [fetchNewsBatch]);
 
     // Actually explicit vibe change effect is safer
     useEffect(() => {
-        // When vibe changes, we WANT to reset.
-        if (isNewsFeedOpen) {
-            fetchNewsBatch(true);
-        } else {
-            // If closed, just reset refs so next open is fresh?
-            resetState();
-        }
+        // When vibe changes, we WANT to reset and fetch new data for the globe
+        fetchNewsBatch(true);
     }, [selectedVibe]);
 
 

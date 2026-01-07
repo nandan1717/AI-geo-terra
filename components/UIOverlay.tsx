@@ -261,7 +261,10 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
     // Only show results list if there is an active search query.
     // This prevents the "My World" user data from opening the side panel automatically.
     const showResultsList = !persona && markers.length > 0 && !selectedMarker && searchState.query;
-    const showMarkerSheet = selectedMarker && !persona && crowd.length === 0;
+
+    // Hide default sheet for News/AI items (handled by NewsFeed)
+    const isGlobalFeedItem = selectedMarker && (selectedMarker.type === 'Event' || (selectedMarker.type === 'Post' && !selectedMarker.isUserPost));
+    const showMarkerSheet = selectedMarker && !persona && crowd.length === 0 && !isGlobalFeedItem;
 
     return (
         <div className="absolute inset-0 pointer-events-none font-sans text-white flex flex-col">

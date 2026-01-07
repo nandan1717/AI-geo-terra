@@ -44,37 +44,18 @@ const parseGdeltDate = (dateStr: string | undefined): string | undefined => {
     return undefined;
 };
 
-const getProxiedUrl = (url: string | undefined | null) => {
+// Helper to validate and return original URL
+const validateAndCleanUrl = (url: string | undefined | null): string | null => {
     if (!url) return null;
-    const cleanUrl = url.trim();
+    let cleanUrl = url.trim();
     if (!cleanUrl.startsWith('http')) return null;
-    // Basic URL validation
+
+    // Validate URL format
     try {
         new URL(cleanUrl);
+        return cleanUrl;
     } catch (e) {
         return null;
-    }
-    return `https://images.weserv.nl/?url=${encodeURIComponent(cleanUrl)}&w=800&q=80`;
-};
-
-const checkImage = async (url: string): Promise<boolean> => {
-    try {
-        const controller = new AbortController();
-        const id = setTimeout(() => controller.abort(), 5000); // 5s Timeout (Relaxed)
-        const res = await fetch(url, {
-            method: 'HEAD',
-            signal: controller.signal,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (compatible; GeoTerra/1.0;)'
-            }
-        });
-        clearTimeout(id);
-        return res.ok;
-    } catch (e) {
-        // If HEAD fails, it usually means timeout or network error. 
-        // We could default to TRUE if we want to risk broken images over NO images,
-        // but let's stick to true validation for now, just relaxed.
-        return false;
     }
 };
 
@@ -132,17 +113,10 @@ const fetchGdeltForVibe = async (vibe: string) => {
         if (vibe === 'Inspiration') sentiment = 8;
         if (vibe === 'Chill') sentiment = 5;
 
-        // Image check (HEAD request)
-        let finalImageUrl: string | null = getProxiedUrl(props.shareimage || props.socialimage);
-        if (finalImageUrl) {
-            const originalImg = props.shareimage || props.socialimage;
-            if (originalImg) {
-                const isValid = await checkImage(originalImg);
-                if (!isValid) finalImageUrl = null;
-            } else {
-                finalImageUrl = null;
-            }
-        }
+        // Image check
+        // Check socialimage first, then shareimage
+        const possibleImage = props.socialimage || props.shareimage;
+        const finalImageUrl = validateAndCleanUrl(possibleImage);
 
         return {
             id: stableId,
@@ -155,7 +129,7 @@ const fetchGdeltForVibe = async (vibe: string) => {
             published_at: parseGdeltDate(props.seendate) || new Date().toISOString(),
             vibe: vibe,
             sentiment: sentiment,
-            country: props.countryname || props.sourcecountry || 'Global',
+            country: props.countryname || props.sourcecountry || props.name || 'Global',
             created_at: new Date().toISOString()
         };
     }));

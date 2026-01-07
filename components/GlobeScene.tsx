@@ -10,9 +10,10 @@ interface SceneProps {
   onMarkerClick: (marker: LocationMarker) => void;
   isPaused: boolean;
   markerColor?: any;
+  onLoadMore?: () => void;
 }
 
-const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selectedMarker, onMarkerClick, isPaused, markerColor = [1, 0.5, 0.1] }, ref) => {
+const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selectedMarker, onMarkerClick, isPaused, markerColor = [1, 0.5, 0.1], onLoadMore }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pointerInteracting = useRef<{ x: number, y: number } | null>(null);
   const pointerInteractionMovement = useRef({ x: 0, y: 0 });
@@ -64,10 +65,18 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
 
     if (!canvasRef.current) return;
 
-    const cobeMarkers = markers.map(m => ({
-      location: [m.latitude, m.longitude],
-      size: selectedMarker && m.id === selectedMarker.id ? 0.2 : (m.type === 'Event' ? 0.08 : 0.15)
-    }));
+    const cobeMarkers = markers
+      .filter(m => {
+        // Hide dots for News Events
+        if (m.type === 'Event') return false;
+        // Hide dots for AI Posts (Feed items)
+        if (m.type === 'Post' && !m.isUserPost) return false;
+        return true;
+      })
+      .map(m => ({
+        location: [m.latitude, m.longitude],
+        size: selectedMarker && m.id === selectedMarker.id ? 0.2 : 0.15
+      }));
 
     const globe = createGlobe(canvasRef.current, {
       devicePixelRatio: 2,
@@ -93,8 +102,11 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
         // Pulse
         if (state.markers) {
           state.markers.forEach((marker, i) => {
-            const baseSize = cobeMarkers[i].size;
-            marker.size = baseSize + (baseSize * Math.sin((Date.now() / 1000) * 2 + i) * (markerColor[1] === 0.8 ? 0.2 : 0.05));
+            // Safety check in case of mismatch
+            if (cobeMarkers[i]) {
+              const baseSize = cobeMarkers[i].size;
+              marker.size = baseSize + (baseSize * Math.sin((Date.now() / 1000) * 2 + i) * (markerColor[1] === 0.8 ? 0.2 : 0.05));
+            }
           });
         }
 
@@ -104,95 +116,161 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
         state.width = width * 2;
         state.height = height * 2;
 
-        // --- PROJECTION LOGIC FOR BUBBLES ---
-        // Only run for News markers to save perf
-        if (markers.some(m => m.type === 'Event')) {
-          const newPositions: any[] = [];
-          const r = 1; // Unit sphere
-          const cx = (state.width / 2); // Physical center X
-          const cy = (state.height / 2); // Physical center Y
+        // --- PROJECTION LOGIC WITH COLLISION DETECTION ---
+        // Run for Events AND AI Posts
+        if (markers.some(m => m.type === 'Event' || (m.type === 'Post' && !m.isUserPost))) {
+          const candidates: any[] = [];
 
-          // Cobe Scale is screen_size / 2?
-          // Actually, projection is roughly:
-          // x_screen = (state.width / 2) + x_rotated * (state.height / 2) * state.scale
-          // Let's deduce.
+          // Pagination Logic
+          const PAGE_SIZE = 20;
+          const rotation = Math.abs(state.phi); // Use absolute rotation
+          const pageIndex = Math.floor(rotation / (Math.PI * 2)); // One full spin = new page
 
-          markers.forEach(m => {
-            if (m.type !== 'Event') return;
+          // Filter valid items first
+          const feedItems = markers.filter(m => m.type === 'Event' || (m.type === 'Post' && !m.isUserPost));
+
+          // Calculate slice
+          // We modulo the index so it loops back if we run out but haven't loaded more yet?
+          // Or just clamp?
+          // User: "anticlockwise spin the old one should popup" -> implies mapping rotation to index directly.
+
+          // Check if we need to load more
+          if ((pageIndex + 1) * PAGE_SIZE > feedItems.length) {
+            // Debounce calling loadMore? 
+            // We rely on parent to handle debounce or check 'hasMore'.
+            // We can't call this Every Frame. 
+            // Let's use a throttle check via a Ref or simpler: check if we are at the edge.
+            // Actually, onLoadMore is a function. We should only call it once per page boundary?
+            // For simplicity, just call it, parent (NewsContext) checks isLoading.
+            if (onLoadMore) onLoadMore();
+          }
+
+          // Safe Slice (Cyclical fallback if we really run out or just clamp?)
+          // User said "infinite spin".
+          // If we have 40 items (2 pages). 
+          // Spin 0: 0-20. Spin 1: 20-40. Spin 2: 40-?? -> Load More.
+          // If load more fails/ends, we should probably loop or stay at end?
+          // Let's loop for visual continuity if no more data.
+
+          let startIndex = pageIndex * PAGE_SIZE;
+          if (startIndex >= feedItems.length) {
+            if (feedItems.length > 0) {
+              startIndex = startIndex % feedItems.length;
+            } else {
+              startIndex = 0;
+            }
+          }
+
+          const currentSlice = feedItems.slice(startIndex, startIndex + PAGE_SIZE);
+
+          currentSlice.forEach(m => {
+            // Already validated type above
 
             const theta = m.latitude * Math.PI / 180;
             const phi = m.longitude * Math.PI / 180;
 
-            // 1. Cartesian on sphere (Cobe specific Mapping)
+            // 1. Cartesian on sphere
             const x = Math.sin(phi) * Math.cos(theta);
             const y = Math.sin(theta);
             const z = Math.cos(phi) * Math.cos(theta);
 
-            // 2. Rotate by state.phi (around Y axis)
+            // 2. Rotate by state.phi
             const rPhi = state.phi;
             const x1 = x * Math.cos(rPhi) - z * Math.sin(rPhi);
             const y1 = y;
             const z1 = x * Math.sin(rPhi) + z * Math.cos(rPhi);
 
-            // 3. Rotate by state.theta (around X axis - Tilt)
-            // Cobe theta rotates down?
+            // 3. Rotate by state.theta
             const rTheta = state.theta;
             const x2 = x1;
             const y2 = y1 * Math.cos(rTheta) - z1 * Math.sin(rTheta);
             const z2 = y1 * Math.sin(rTheta) + z1 * Math.cos(rTheta);
 
             // 4. Project
-            const projectedScale = (state.width / 2) * state.scale; // Width is 2x css
-            // Screen coordinates (CSS pixels)
+            const projectedScale = (state.width / 2) * state.scale;
             const screenX = (state.width / 2 + x2 * projectedScale) / 2;
             const screenY = (state.height / 2 - y2 * projectedScale) / 2;
 
             // Cull backside
-            if (z2 > 0) { // Z > 0 is front? Or < 0? 
-              // Cobe: usually +Z is towards camera if phi=0 matches greenwich?
-              // Trial and error: if it shows when behind, flip this.
-              // Cobe source: dot > 0 check.
-              // We will use z2 > 0 for now.
-
-              newPositions.push({
+            if (z2 > 0) {
+              candidates.push({
                 id: m.id,
                 x: screenX,
                 y: screenY,
-                visible: true,
-                marker: m // Keep ref
+                z: z2, // Depth for sorting
+                marker: m
               });
             }
           });
 
-          // Update React state (throttled/batched ideally, but RequestAnimationFrame usually ok)
-          // To avoid too many re-renders, we might use a ref for DOM manipulation directly?
-          // React State causes re-render of component. 
-          // Let's use State but maybe Throttle?
-          // Actually, animating bubbles in React state 60fps is heavy.
-          // BETTER: Use Ref to update DOM directly.
+          // Sort by Depth (Closest first) to ensure front labels take priority
+          candidates.sort((a, b) => b.z - a.z);
 
+          // Collision Detection
+          const occupied: { x: number, y: number, w: number, h: number }[] = [];
+          const visiblePositions: any[] = [];
+          const LABEL_WIDTH = 200; // Increased for full headline
+          const LABEL_HEIGHT = 60; // Increased for multi-tine
+
+          candidates.forEach(c => {
+            // Check collision
+            // We assume the point (c.x, c.y) is the CENTER or TOP-LEFT?
+            // CSS has transform translate. Usually centers it if we didn't offset.
+            // Let's assume centered anchor for simplicity or adjust.
+            // In CSS: transform: translate(x, y). 
+            // We usually want to center the div on the point.
+            // Let's define the box as centered on x,y.
+
+            const box = {
+              x: c.x - LABEL_WIDTH / 2,
+              y: c.y - LABEL_HEIGHT / 2,
+              w: LABEL_WIDTH,
+              h: LABEL_HEIGHT
+            };
+
+            let hasCollision = false;
+            for (const ob of occupied) {
+              if (
+                box.x < ob.x + ob.w &&
+                box.x + box.w > ob.x &&
+                box.y < ob.y + ob.h &&
+                box.y + box.h > ob.y
+              ) {
+                hasCollision = true;
+                break;
+              }
+            }
+
+            if (!hasCollision) {
+              occupied.push(box);
+              visiblePositions.push({ ...c, visible: true });
+            } else {
+              // Optional: We could still track it as invisible if we wanted to animate out?
+              // For now, simpler to just not render/hide.
+              visiblePositions.push({ ...c, visible: false });
+            }
+          });
+
+          // Update DOM
           if (bubbleContainerRef.current) {
-            // Clear or match children?
-            // Naive: Update transforms.
-            // We need to match IDs.
             const children = bubbleContainerRef.current.children;
             for (let i = 0; i < children.length; i++) {
               const el = children[i] as HTMLElement;
               const id = el.dataset.id;
-              const match = newPositions.find(p => p.id === id);
-              if (match) {
-                el.style.transform = `translate(${match.x}px, ${match.y}px)`;
+              const match = visiblePositions.find(p => p.id === id);
+
+              if (match && match.visible) {
+                // Offset to center the element
+                el.style.transform = `translate(${match.x}px, ${match.y}px) translate(-50%, -50%)`;
                 el.style.opacity = '1';
-                el.style.pointerEvents = 'auto'; // Make clickable!
+                el.style.pointerEvents = 'auto';
+                el.style.zIndex = Math.floor(match.z * 100).toString(); // Stack order
               } else {
                 el.style.opacity = '0';
                 el.style.pointerEvents = 'none';
               }
             }
-            // What if new markers? We rely on Render to create DOM first.
-            // We will sync React state occasionally? 
-            // Let's just set raw positions in a ref available to 'onClick' logic too.
-            latestPositionsRef.current = newPositions;
+            latestPositionsRef.current = visiblePositions.filter(p => p.visible);
           }
         }
       },
@@ -274,7 +352,7 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
   };
 
   // Render Bubbles (Static List)
-  const renderBubbles = markers.filter(m => m.type === 'Event');
+  const renderBubbles = markers.filter(m => m.type === 'Event' || (m.type === 'Post' && !m.isUserPost));
 
   return (
     <div
@@ -317,14 +395,14 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
             }}
             className="absolute flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-amber-500/30 shadow-[0_0_15px_rgba(251,191,36,0.2)] transition-opacity duration-200 cursor-pointer group hover:bg-black/80 hover:border-amber-500/60"
             style={{
-              transform: 'translate(-100px, -100px)',
+              transform: 'translate(-50%, -50%)',
               opacity: 0,
               maxWidth: '200px',
               pointerEvents: 'auto'
             }}
           >
             <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0"></div>
-            <span className="text-[10px] text-amber-100 font-medium truncate drop-shadow-md">{m.name}</span>
+            <span className="text-[10px] text-amber-100 font-medium drop-shadow-md leading-tight">{m.name}</span>
           </div>
         ))}
       </div>

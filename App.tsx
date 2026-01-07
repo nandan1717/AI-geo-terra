@@ -33,14 +33,15 @@ const App: React.FC = () => {
   const [isLoadingCrowd, setIsLoadingCrowd] = useState(false); // Renamed from isScanning
 
   // GDELT News State handled by Context
-  const { newsEvents, isNewsFeedOpen, toggleNewsFeed } = useNews();
+  const { newsEvents, isNewsFeedOpen, toggleNewsFeed, loadMore, setFocusedEventId } = useNews();
 
 
 
 
   const combinedMarkers = useMemo(() => {
-    return [...markers, ...(isNewsFeedOpen ? newsEvents : [])];
-  }, [markers, isNewsFeedOpen, newsEvents]);
+    // Always show news events on the globe now
+    return [...markers, ...newsEvents];
+  }, [markers, newsEvents]);
 
   useEffect(() => {
     // Set Single Color for News Mode if active
@@ -58,6 +59,13 @@ const App: React.FC = () => {
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isSummoning, setIsSummoning] = useState(false); // Restored isSummoning state
   const [suggestions, setSuggestions] = useState<string[]>([]);
+
+  // Auto-resume rotation when News Feed closes
+  useEffect(() => {
+    if (!isNewsFeedOpen && selectedMarker && (selectedMarker.type === 'Event' || (selectedMarker.type === 'Post' && !selectedMarker.isUserPost))) {
+      setSelectedMarker(null);
+    }
+  }, [isNewsFeedOpen]);
 
   const globeRef = useRef<CameraControlRef>(null);
 
@@ -451,7 +459,21 @@ const App: React.FC = () => {
 
 
 
+  const handleCloseMarker = useCallback(() => {
+    setSelectedMarker(null);
+    setPersona(null);
+    setSuggestions([]);
+    setCrowd([]);
+  }, []);
+
   const handleSelectMarker = useCallback(async (marker: LocationMarker) => {
+    // Toggle Logic: If clicking the same marker, deselect it to resume rotation
+    if (selectedMarker?.id === marker.id) {
+      handleCloseMarker();
+      if (isNewsFeedOpen) toggleNewsFeed();
+      return;
+    }
+
     setSelectedMarker(marker);
     setPersona(null);
     setSuggestions([]);
@@ -466,8 +488,12 @@ const App: React.FC = () => {
       recommendationService.trackInteraction(marker, 'CLICK');
     });
 
-    // Don't fetch crowd for News Events
-    if (marker.type === 'Event') return;
+    // Don't fetch crowd for News Events OR AI Feed Posts
+    if (marker.type === 'Event' || (marker.type === 'Post' && !marker.isUserPost)) {
+      setFocusedEventId(marker.id);
+      if (!isNewsFeedOpen) toggleNewsFeed();
+      return;
+    }
 
     setIsLoadingCrowd(true);
     try {
@@ -484,7 +510,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoadingCrowd(false);
     }
-  }, [searchState.query]);
+  }, [searchState.query, selectedMarker, handleCloseMarker]);
 
   const handleCustomCrowdSearch = useCallback(async (query: string) => {
     if (!selectedMarker) return;
@@ -511,12 +537,7 @@ const App: React.FC = () => {
     handleSelectMarker(marker);
   }, [handleSelectMarker]);
 
-  const handleCloseMarker = useCallback(() => {
-    setSelectedMarker(null);
-    setPersona(null);
-    setSuggestions([]);
-    setCrowd([]);
-  }, []);
+
 
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
 
@@ -669,6 +690,7 @@ const App: React.FC = () => {
               onMarkerClick={handleMarkerClick}
               isPaused={!!selectedMarker}
               markerColor={markerColor}
+              onLoadMore={loadMore}
             />
           </Suspense>
         </div>

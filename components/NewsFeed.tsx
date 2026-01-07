@@ -64,6 +64,7 @@ const NewsCard: React.FC<{ event: LocationMarker; index: number }> = ({ event, i
 
     return (
         <div
+            id={`card-${event.id}`}
             ref={cardRef}
             data-index={index}
             className="news-card w-full h-full snap-start snap-always relative flex flex-col bg-gray-900 border-b border-white/5 overflow-hidden group"
@@ -246,11 +247,27 @@ const timeAgo = (dateStr?: string) => {
 
 
 const NewsFeed: React.FC<NewsFeedProps> = ({ onEventClick }) => {
-    const { newsEvents, isLoading, isNewsFeedOpen, toggleNewsFeed, loadMore, selectedVibe, setVibe } = useNews();
+    const { newsEvents, isLoading, isNewsFeedOpen, toggleNewsFeed, loadMore, selectedVibe, setVibe, focusedEventId } = useNews();
     const scrollRef = useRef<HTMLDivElement>(null);
     const [userPosts, setUserPosts] = useState<LocationMarker[]>([]);
     const [loadingPosts, setLoadingPosts] = useState(false);
     const observerRef = useRef<IntersectionObserver | null>(null);
+
+    // Deep Linking: Scroll to focused event
+    useEffect(() => {
+        if (isNewsFeedOpen && focusedEventId) {
+            // Tiny delay to ensure DOM is rendered/animated in
+            setTimeout(() => {
+                const element = document.getElementById(`card-${focusedEventId}`);
+                if (element) {
+                    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    // Optional: Add highlight effect manually if not using CSS class
+                    element.classList.add('ring-2', 'ring-blue-500');
+                    setTimeout(() => element.classList.remove('ring-2', 'ring-blue-500'), 2000);
+                }
+            }, 500);
+        }
+    }, [isNewsFeedOpen, focusedEventId]);
 
     // Fetch Global User Posts
     useEffect(() => {

@@ -131,8 +131,8 @@ export const aiContentService = {
 
             return {
                 id: `ai-explorer-${Date.now()}`,
-                name: `explorer*${Math.floor(Math.random() * 1000)}*${locData.location.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
-                description: caption.replace(/"/g, ''),
+                name: caption.replace(/"/g, ''),
+                description: `Explorer • ${locData.location}, ${locData.country}`,
                 latitude: lat,
                 longitude: lng,
                 type: 'Post',
@@ -231,9 +231,9 @@ export const aiContentService = {
                     let title = item.text;
 
                     if (item.isExplorer) {
-                        const saneLoc = item.location ? item.location.toLowerCase().replace(/[^a-z0-9]/g, '') : "daily";
-                        title = `explorer*${saneLoc}`;
-                        description = item.text;
+                        title = item.text.replace(/"/g, '');
+                        const locStr = item.location || "Global";
+                        description = `Explorer • ${locStr}`;
                     } else {
                         if (item.type === 'Quote' && item.author && item.author !== 'Unknown') {
                             description = `— ${item.author}`;
