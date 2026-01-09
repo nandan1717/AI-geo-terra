@@ -319,14 +319,6 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profile, aiLocalsCount, i
             </div>
 
 
-            {/* DEBUG UI */}
-            <div className="mt-4 p-2 text-[10px] text-gray-500 font-mono bg-black/50 rounded border border-white/5 mx-6 mb-4">
-                <p className="font-bold text-gray-400">DEBUG PANEL</p>
-                <p>Count: {followingCount}</p>
-                <p>Keys: {Object.keys(profileData.topicExpirations || {}).join(', ') || 'None'}</p>
-                <p>Raw: {JSON.stringify(profileData.topicExpirations || {})}</p>
-            </div>
-
         </div >
     );
 };
