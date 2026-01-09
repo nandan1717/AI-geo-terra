@@ -5,7 +5,7 @@ export interface LocationMarker {
   latitude: number;
   longitude: number;
   description: string;
-  type?: 'Country' | 'State' | 'City' | 'Place' | 'Business' | 'Landmark' | 'Post' | 'Event'; // Added 'Event'
+  type?: 'Country' | 'State' | 'City' | 'Place' | 'Business' | 'Landmark' | 'Post' | 'Event' | 'User' | 'Persona'; // Added User, Persona
   timezone?: string;
   country?: string;
   region?: string;
@@ -50,7 +50,7 @@ export interface LocalPersona extends CrowdMember {
   message: string;
   imageUrl: string;
   suggestedQuestions: string[];
-  origin?: 'story' | 'map'; // Track where this persona came from
+  origin?: 'story' | 'map' | 'search'; // Track where this persona came from
 }
 
 export interface UserProfile {

@@ -14,7 +14,8 @@ import { StoryBar } from './components/StoryBar';
 import { supabase } from './services/supabaseClient';
 import { Session } from '@supabase/supabase-js';
 import { LocationMarker, SearchState, LocalPersona, ChatMessage, CameraControlRef, CrowdMember, Notification as AppNotification } from './types';
-import { fetchLocationsFromQuery, fetchCrowd, connectWithCrowdMember, chatWithPersona } from './services/geminiService';
+import { fetchCrowd, connectWithCrowdMember, chatWithPersona } from './services/geminiService';
+import { universalSearchService } from './services/universalSearchService';
 import { subscribeToNotifications, createNotification, getUnreadCount } from './services/notificationService';
 
 const App: React.FC = () => {
@@ -86,6 +87,7 @@ const App: React.FC = () => {
   const [showPermissionCard, setShowPermissionCard] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isCreatePostOpen, setIsCreatePostOpen] = useState(false);
+  const [isSearchActive, setIsSearchActive] = useState(false); // New state to track search bar interaction
 
   // Profile State
   const [userProfileImage, setUserProfileImage] = useState<string | undefined>(undefined);
@@ -395,36 +397,27 @@ const App: React.FC = () => {
     setPersona(null);
     setSuggestions([]);
     setCrowd([]);
-
-    setLastChatHistory([]); // Clear last chat history on new search
+    setLastChatHistory([]);
 
     // Disable News Feed on Search
     if (isNewsFeedOpen) toggleNewsFeed();
 
+    // Clear existing markers immediately to prevent "flashing" old results/user location
+    setMarkers([]);
+
     try {
-      const locations = await fetchLocationsFromQuery(query);
+      // UNIVERSAL SEARCH
+      const { results, intent } = await universalSearchService.search(query);
 
-      if (locations.length > 0) {
-        setMarkers(locations);
+      if (results.length > 0) {
+        setMarkers(results);
 
-        // Auto-select and Fly to first result
-        const firstMatch = locations[0];
-        // Don't auto-select to avoid opening "Old UI" panel immediately
-        // setSelectedMarker(firstMatch); 
-        if (globeRef.current) {
+        const firstMatch = results[0];
+        // Fly to first news event location
+        if (globeRef.current && firstMatch.latitude !== 0) {
           globeRef.current.flyTo(firstMatch.latitude, firstMatch.longitude);
         }
-
-        // DeepSeek AI Color Analysis
-        if (firstMatch.country) {
-          import('./services/deepseekService').then(({ fetchCountryColor }) => {
-            fetchCountryColor(firstMatch.country!).then(color => {
-              setMarkerColor(color);
-            });
-          });
-        } else {
-          setMarkerColor([1, 0.5, 0.1]); // Reset to Orange
-        }
+        setMarkerColor([1, 0.2, 0.2]); // Always Red for News
 
         // Trigger Post-Search Tutorial if not seen
         const hasSeenPostSearch = localStorage.getItem('mortals_tutorial_post_search_seen');
@@ -433,17 +426,17 @@ const App: React.FC = () => {
         }
 
       } else {
-        // Clear markers if no results found to prevent showing old data with new error
         setMarkers([]);
-        setSearchState(prev => ({ ...prev, error: "No habitable sectors found." }));
+        setSearchState(prev => ({ ...prev, error: `No results found for "${query}"` }));
       }
 
     } catch (error: any) {
-      setSearchState(prev => ({ ...prev, error: error.message || "Scan failed." }));
+      console.warn("Search Error:", error);
+      setSearchState(prev => ({ ...prev, error: error.message || "Search failed." }));
     } finally {
       setSearchState(prev => ({ ...prev, isLoading: false }));
     }
-  }, []);
+  }, [isNewsFeedOpen, toggleNewsFeed]);
 
   const handleClearResults = useCallback(() => {
     setMarkers(userMarkers); // Revert to user markers instead of empty
@@ -474,12 +467,20 @@ const App: React.FC = () => {
       return;
     }
 
+    // SPECIAL TYPES HANDLING
+    if (marker.type === 'Event') {
+      // Dispatch event to UIOverlay to handle Feed injection and opening
+      window.dispatchEvent(new CustomEvent('geo-terra:view-news-item', { detail: { event: marker } }));
+      // Highlight logic below
+    }
+
+
     setSelectedMarker(marker);
     setPersona(null);
     setSuggestions([]);
     setCrowd([]);
 
-    if (globeRef.current) {
+    if (globeRef.current && marker.latitude !== 0) {
       globeRef.current.flyTo(marker.latitude, marker.longitude);
     }
 
@@ -490,8 +491,11 @@ const App: React.FC = () => {
 
     // Don't fetch crowd for News Events OR AI Feed Posts
     if (marker.type === 'Event' || (marker.type === 'Post' && !marker.isUserPost)) {
-      setFocusedEventId(marker.id);
-      if (!isNewsFeedOpen) toggleNewsFeed();
+      // For AI Posts, we handle focus/open here. For Events, it's handled via dispatch above.
+      if (marker.type !== 'Event') {
+        setFocusedEventId(marker.id);
+        if (!isNewsFeedOpen) toggleNewsFeed();
+      }
       return;
     }
 
@@ -741,6 +745,7 @@ const App: React.FC = () => {
           onPermissionGranted={handlePermissionGranted}
           onPermissionDismiss={handlePermissionDismiss}
           onPostClick={() => setIsCreatePostOpen(true)}
+          onSearchInteraction={setIsSearchActive}
 
 
         />
@@ -766,7 +771,7 @@ const App: React.FC = () => {
         {session?.user && !isChatOpen && !isNewsFeedOpen && <SupportChat userId={session.user.id} />}
 
         {/* AI Story Bar */}
-        {!isNewsFeedOpen && !isChatOpen && <StoryBar />}
+        {!isNewsFeedOpen && !isChatOpen && !isSearchActive && <StoryBar />}
 
       </div>
     </ErrorBoundary>

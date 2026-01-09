@@ -8,29 +8,40 @@ export const fetchGlobalEvents = async (limit: number = 60, vibe: VibeType = 'Tr
     // Import supabase client
     const { supabase } = await import('./supabaseClient');
 
-    // Query Supabase
-    let query = supabase
-      .from('gdelt_events')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(limit);
+    let data: any[] | null = null;
+    let error: any = null;
 
-    // Apply Filter based on Vibe
-    // We store vibe in the DB.
-    if (vibe !== 'Trending') {
-      query = query.eq('vibe', vibe);
+    // Use Edge Function for the main "Trending" feed to get Personalization
+    if (vibe === 'Trending') {
+      const response = await supabase.functions.invoke('serve-feed', {
+        method: 'GET',
+      });
+      if (response.error) {
+        console.warn("Edge Function served-feed failed, falling back to direct query:", response.error);
+        // Fallback will happen below
+      } else {
+        console.log("Fetched personalized feed from Edge Function");
+        data = response.data;
+      }
     }
-    // For 'Trending', we might want everything or just 'Trending'. 
-    // Usually 'Trending' view shows a mix, but let's stick to strict if usage implies categorization.
-    // If the user wants "Global" mixed feed, they might pass Trending.
-    // If we only fetch "Trending" tagged items, we miss others.
-    // Let's assume Trending means "Show me everything" or specific "Trending" tag.
-    // In Edge Function we fetch specific vibes.
 
-    // If additionalQuery is present, we can't easily filter by it in Supabase unless we have full text search.
-    // We'll rely on the DB feed for now as requested.
+    // Fallback / Standard Query for other vibes or if Edge Function failed/returned nothing
+    if (!data) {
+      let query = supabase
+        .from('gdelt_events')
+        .select('*')
+        .order('published_at', { ascending: false }) // Use published_at for recency
+        .limit(limit);
 
-    const { data, error } = await query;
+      // Apply Filter based on Vibe
+      if (vibe !== 'Trending') {
+        query = query.eq('vibe', vibe);
+      }
+
+      const result = await query;
+      data = result.data;
+      error = result.error;
+    }
 
     if (error) {
       console.error("Supabase GDELT Fetch Error:", error);
@@ -61,7 +72,50 @@ export const fetchGlobalEvents = async (limit: number = 60, vibe: VibeType = 'Tr
     return markers;
 
   } catch (error) {
-    console.warn("Failed to fetch GDELT events from Supabase:", error);
+    console.warn("Failed to fetch GDELT events:", error);
+    return [];
+  }
+};
+
+export const searchEvents = async (queryTerm: string): Promise<LocationMarker[]> => {
+  try {
+    const { supabase } = await import('./supabaseClient');
+    // Calculate Start of Today (UTC) to ensure "Today's News"
+    const startOfToday = new Date();
+    startOfToday.setUTCHours(0, 0, 0, 0);
+    const dateString = startOfToday.toISOString();
+
+    // 1. Search in Country (Location), Title, or Description
+    // 2. Filter for THIS DAY only
+    const { data, error } = await supabase
+      .from('gdelt_events')
+      .select('*')
+      .or(`country.ilike.%${queryTerm}%,title.ilike.%${queryTerm}%,description.ilike.%${queryTerm}%`)
+      .gte('published_at', dateString)
+      .order('published_at', { ascending: false })
+      .limit(30);
+
+    if (error || !data) return [];
+
+    return data.map((event: any) => ({
+      id: event.id,
+      name: event.title,
+      latitude: event.latitude,
+      longitude: event.longitude,
+      description: event.description || event.title,
+      type: 'Event',
+      sourceUrl: event.source_url,
+      postImageUrl: event.image_url,
+      isUserPost: false,
+      publishedAt: event.published_at,
+      category: event.vibe,
+      vibe: event.vibe as VibeType,
+      sentiment: event.sentiment,
+      country: event.country,
+      markerColor: getMarkerColor(event.vibe as VibeType)
+    }));
+  } catch (e) {
+    console.error("GDELT Search failed", e);
     return [];
   }
 };

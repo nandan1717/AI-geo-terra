@@ -59,18 +59,26 @@ const validateAndCleanUrl = (url: string | undefined | null): string | null => {
     }
 };
 
-const fetchGdeltForVibe = async (vibe: string) => {
-    // Construct Query based on Vibe
+const fetchGdeltForQuery = async (customQuery: string | null, vibe: string) => {
+    // Construct Query based on Vibe OR Custom Query
     let query = 'sourcelang:eng';
     const baseExclusions = '-theme:POLITICS -theme:MILITARY -theme:GOVERNMENT -theme:TAX_FNCACT -theme:LEGISLATION';
 
-    switch (vibe) {
-        case 'High Energy': query += ` (sport OR festival OR concert OR music OR premiere OR "red carpet" OR celebrity) ${baseExclusions}`; break;
-        case 'Chill': query += ` (travel OR vacation OR beach OR park OR museum OR "art gallery" OR hiking OR nature) ${baseExclusions}`; break;
-        case 'Inspiration': query += ` (theme:EDUCATION OR theme:SCIENCE OR theme:INNOVATION OR theme:CHARITY OR breakthrough OR discovery) ${baseExclusions}`; break;
-        case 'Intense': query += ` (theme:SOCIETY OR theme:MEDIA_MSM OR theme:CRISISLEX OR protest OR rally) ${baseExclusions}`; break;
-        case 'Trending':
-        default: query += ` (technology OR culture OR fashion OR movie OR viral OR film OR social) ${baseExclusions}`; break;
+    if (customQuery) {
+        // Targeted Query
+        // We append the custom query directly.
+        // e.g. (Japan OR Tokyo)
+        query += ` ${customQuery} ${baseExclusions}`;
+    } else {
+        // Standard Vibe Query
+        switch (vibe) {
+            case 'High Energy': query += ` (sport OR festival OR concert OR music OR premiere OR "red carpet" OR celebrity) ${baseExclusions}`; break;
+            case 'Chill': query += ` (travel OR vacation OR beach OR park OR museum OR "art gallery" OR hiking OR nature) ${baseExclusions}`; break;
+            case 'Inspiration': query += ` (theme:EDUCATION OR theme:SCIENCE OR theme:INNOVATION OR theme:CHARITY OR breakthrough OR discovery) ${baseExclusions}`; break;
+            case 'Intense': query += ` (theme:SOCIETY OR theme:MEDIA_MSM OR theme:CRISISLEX OR protest OR rally) ${baseExclusions}`; break;
+            case 'Trending':
+            default: query += ` (technology OR culture OR fashion OR movie OR viral OR film OR social) ${baseExclusions}`; break;
+        }
     }
 
     const limit = 40;
@@ -153,29 +161,108 @@ const fetchPexels = async (url: string) => {
     }));
 };
 
+const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
 // Main Handler
-Deno.serve(async (_req) => {
+// Main Handler
+Deno.serve(async (req) => {
+    // Handle CORS Preflight
+    if (req.method === 'OPTIONS') {
+        return new Response('ok', { headers: corsHeaders });
+    }
+
     try {
         if (!PEXELS_API_KEY) {
-            throw new Error("Missing PEXELS_API_KEY");
+            console.error("Missing PEXELS_API_KEY environment variable");
+            throw new Error("Server Misconfiguration: Missing API Keys");
         }
 
-        console.log("Starting Feed Update...");
+        // Parse Request Body (if any)
+        let customQuery: string | null = null;
+        try {
+            // Only attempt to parse body if method is POST and body exists
+            if (req.method === 'POST' && req.body) {
+                const payload = await req.json();
+                customQuery = payload.query;
+            }
+        } catch (e) {
+            console.warn("Failed to parse request body, proceeding without custom query:", e);
+            // Ignore JSON parse error (likely empty body from CRON or GET request)
+        }
+
+        console.log(`Starting Feed Update. Custom Query: ${customQuery || 'None (Global Cron)'}`);
 
         // 1. Fetch GDELT Data
-        const vibes = ['Trending', 'High Energy', 'Chill', 'Inspiration', 'Intense'];
-        const gdeltPromises = vibes.map(v => fetchGdeltForVibe(v));
-        const gdeltResults = await Promise.all(gdeltPromises);
-        const allGdeltEvents = gdeltResults.flat();
+        let allGdeltEvents: any[] = [];
 
-        // 2. Fetch Pexels Data
-        const pexelsCurated = await fetchPexels(`https://api.pexels.com/v1/curated?per_page=40`);
-        const allPexelsMedia = [...pexelsCurated];
+        try {
+            if (customQuery) {
+                // Targeted User Fetch
+                // Use a simpler 'Trending' vibe for custom queries to ensure we get results
+                const events = await fetchGdeltForQuery(customQuery, 'User Interest');
+                allGdeltEvents = [...events];
+            } else {
+                // Standard Global Cron Fetch
+                const vibes = ['Trending', 'High Energy', 'Chill', 'Inspiration', 'Intense'];
+                // Execute sequentially to avoid rate limits or memory bursts if critical
+                // but Promise.all is usually fine for 5 reqs.
+                const gdeltPromises = vibes.map(v => fetchGdeltForQuery(null, v).catch(err => {
+                    console.error(`Failed to fetch GDELT for vibe ${v}:`, err);
+                    return [];
+                }));
+
+                // --- PERSONALIZATION ---
+                // Fetch unique topics followed by ANY user to populate the shared pool
+                let topicEvents: any[] = [];
+                try {
+                    const { data: profiles, error: profileError } = await supabase
+                        .from('app_profiles_v2')
+                        .select('followed_topics')
+                        .not('followed_topics', 'is', null);
+
+                    if (!profileError && profiles) {
+                        // Flatten and Unique
+                        const allTopics = new Set<string>();
+                        profiles.forEach((p: any) => {
+                            if (Array.isArray(p.followed_topics)) {
+                                p.followed_topics.forEach((t: string) => allTopics.add(t.toLowerCase().trim()));
+                            }
+                        });
+
+                        const uniqueTopics = Array.from(allTopics).slice(0, 30); // Limit to 30 topics for now
+                        console.log(`Found ${uniqueTopics.length} unique user topics to fetch:`, uniqueTopics);
+
+                        if (uniqueTopics.length > 0) {
+                            const topicPromises = uniqueTopics.map(topic =>
+                                fetchGdeltForQuery(`"${topic}"`, 'User Interest').catch(e => [])
+                            );
+                            const topicResults = await Promise.all(topicPromises);
+                            topicEvents = topicResults.flat();
+                            console.log(`Fetched ${topicEvents.length} personalized events.`);
+                        }
+                    }
+                } catch (pErr) {
+                    console.error("Personalization Fetch Error:", pErr);
+                }
+
+                const gdeltResults = await Promise.all(gdeltPromises);
+                allGdeltEvents = [...gdeltResults.flat(), ...topicEvents];
+            }
+        } catch (gdeltErr) {
+            console.error("CRITICAL: GDELT Fetching phase failed entirely:", gdeltErr);
+            // We continue to Pexels so we don't return partial failure if possible
+        }
+
+        // 2. Fetch Pexels Data - REMOVED (User Request 2025-01-09)
+        // We no longer fetch generic stock videos/images for the feed.
 
         // 3. Upsert to Supabase
-        // Upsert GDELT
+        let uniqueEvents: any[] = [];
         if (allGdeltEvents.length > 0) {
-            const uniqueEvents = Array.from(
+            uniqueEvents = Array.from(
                 new Map(allGdeltEvents.map((item) => [item.id, item])).values()
             );
 
@@ -186,45 +273,84 @@ Deno.serve(async (_req) => {
                 .upsert(uniqueEvents, { onConflict: 'id' });
 
             if (gdeltError) console.error("GDELT Upsert Error:", gdeltError);
-            else console.log(`Upserted ${uniqueEvents.length} GDELT events.`);
+            else {
+                console.log(`Upserted ${uniqueEvents.length} GDELT events.`);
+
+                // NOTIFICATION LOGIC (Only for Global Cron)
+                if (!customQuery) {
+                    const FCM_SERVER_KEY = Deno.env.get('FCM_SERVER_KEY');
+                    if (FCM_SERVER_KEY) {
+                        const highValueEvents = uniqueEvents.filter((e: any) => e.sentiment >= 8 || e.vibe === 'Intense' || e.vibe === 'Inspiration');
+                        const topEvent = highValueEvents[0];
+                        if (topEvent) {
+                            const topic = `news_${topEvent.vibe.toLowerCase().replace(' ', '_')}`;
+                            console.log(`Broadcasting Notification for: ${topEvent.title} to topic: ${topic}`);
+
+                            try {
+                                const fcmPayload = {
+                                    "to": `/topics/${topic}`,
+                                    "notification": {
+                                        "title": `🚨 Breaking in ${topEvent.country}`,
+                                        "body": topEvent.title,
+                                        "sound": "default",
+                                        "click_action": "geo-terra:view-news-item"
+                                    },
+                                    "data": { "eventId": topEvent.id, "type": "NEWS_ALERT", "vibe": topEvent.vibe }
+                                };
+                                const fcmResp = await fetch('https://fcm.googleapis.com/fcm/send', {
+                                    method: 'POST',
+                                    headers: { 'Authorization': `key=${FCM_SERVER_KEY}`, 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(fcmPayload)
+                                });
+
+                                if (!fcmResp.ok) {
+                                    console.error("FCM Send Failed:", await fcmResp.text());
+                                } else {
+                                    console.log("FCM Broadcast Sent Successfully.");
+                                }
+                            } catch (e) {
+                                console.error("FCM Dispatch Error:", e);
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            console.log("No GDELT events found to upsert.");
         }
 
-        // Upsert Pexels
-        if (allPexelsMedia.length > 0) {
-            const { error: pexelsError } = await supabase
-                .from('pexels_media')
-                .upsert(allPexelsMedia, { onConflict: 'id' });
+        // Upsert Pexels - REMOVED
 
-            if (pexelsError) console.error("Pexels Upsert Error:", pexelsError);
-            else console.log(`Upserted ${allPexelsMedia.length} Pexels items.`);
+        // 4. Cleanup Old Data (> 20 mins) - Only on Cron Run
+        if (!customQuery) {
+            try {
+                const cutoff = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+                const { error: cleanupGdeltError } = await supabase.from('gdelt_events').delete().lt('created_at', cutoff);
+                if (cleanupGdeltError) console.error("GDELT Cleanup Error:", cleanupGdeltError);
+                // Pexels Cleanup - REMOVED
+            } catch (cleanupErr) {
+                console.error("Cleanup phase failed:", cleanupErr);
+            }
         }
 
-        // 4. Cleanup Old Data (> 20 mins)
-        const cutoff = new Date(Date.now() - 20 * 60 * 1000).toISOString();
-
-        const { error: cleanupGdeltError } = await supabase
-            .from('gdelt_events')
-            .delete()
-            .lt('created_at', cutoff);
-
-        if (cleanupGdeltError) console.error("GDELT Cleanup Error:", cleanupGdeltError);
-
-        const { error: cleanupPexelsError } = await supabase
-            .from('pexels_media')
-            .delete()
-            .lt('created_at', cutoff);
-
-        if (cleanupPexelsError) console.error("Pexels Cleanup Error:", cleanupPexelsError);
-
-        return new Response(JSON.stringify({ success: true, message: "Feeds updated" }), {
-            headers: { "Content-Type": "application/json" },
+        return new Response(JSON.stringify({
+            success: true,
+            message: customQuery ? "Custom feed fetched" : "Global feeds updated",
+            events: uniqueEvents
+        }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
 
     } catch (err) {
         console.error("Function Error:", err);
-        return new Response(JSON.stringify({ success: false, error: err.message }), {
+        // Important: Return JSON with error details AND CORS headers so client doesn't get a network error
+        return new Response(JSON.stringify({
+            success: false,
+            error: err instanceof Error ? err.message : 'Unknown Error',
+            details: String(err)
+        }), {
             status: 500,
-            headers: { "Content-Type": "application/json" },
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
     }
 });

@@ -29,6 +29,10 @@ interface ProfileModalProps {
 
 // --- Sub-Components ---
 
+import { recommendationService } from '../services/recommendationService';
+
+// ... (existing imports)
+
 interface ProfileHeaderProps {
     profile: UserProfile;
     aiLocalsCount: number;
@@ -37,6 +41,9 @@ interface ProfileHeaderProps {
 }
 
 const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profile, aiLocalsCount, isOwnProfile, onEdit }) => {
+    // List View State
+    const [activeList, setActiveList] = useState<null | 'Countries' | 'Continents' | 'Following'>(null);
+
     // Gamification Calculations
     const level = profile.level || 1;
     const cwXp = profile.xp || 0;
@@ -44,20 +51,188 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profile, aiLocalsCount, i
     const prevLevelXp = (level - 1) * 1000;
     const progress = Math.min(100, Math.max(0, ((cwXp - prevLevelXp) / (nextLevelXp - prevLevelXp)) * 100));
 
+    // Get Data
+    const profileData = recommendationService.getProfile();
+    const [followingTopics, setFollowingTopics] = useState<string[]>(profileData.followedTopics || []);
+    const followingCount = followingTopics.length;
+    // Force re-render periodically for timers? For now just on mount/update is fine.
+
+    // Helper to get list data
+    const getListData = () => {
+        if (activeList === 'Countries') return profile.visited_countries || [];
+        if (activeList === 'Continents') return profile.visited_continents || [];
+        if (activeList === 'Following') return followingTopics;
+        return [];
+    };
+
+    const handleUnfollow = async (topic: string) => {
+        await recommendationService.unfollow(topic);
+        setFollowingTopics(recommendationService.getProfile().followedTopics || []);
+    };
+
+    // Helper: Calculate Progress & Time Left
+    const getTopicStatus = (topic: string) => {
+        const normalized = topic.toLowerCase();
+        const exp = profileData.topicExpirations?.[normalized];
+        // console.log('Topic Status Check:', { topic, normalized, exp, allExps: profileData.topicExpirations });
+
+        if (!exp) return { progress: 100, label: 'Forever', isForever: true };
+
+        const now = Date.now();
+        const timeLeft = exp - now;
+
+        if (timeLeft <= 0) return { progress: 0, label: 'Expired', isForever: false };
+
+        // Estimate Total Duration to calculate percentage handled
+        // We don't store "start time", so we have to guess or just show "time left" as a full circle?
+        // Ah, request says "how much time i am following for and how much time has passed".
+        // Without start time, we can't show "passed". We only know "ends at".
+        // Let's assume standard durations (12h, 1w, 30d) to guess the denominator? 
+        // Or just show a countdown? 
+        // Let's try to reverse engineer the duration bucket for the denominator.
+
+        let duration = 0;
+        const h12 = 12 * 3600 * 1000;
+        const d7 = 7 * 24 * 3600 * 1000;
+        const d30 = 30 * 24 * 3600 * 1000;
+
+        // Simple heuristic: if timeLeft is close to X, assume X was total. 
+        // But if 6 hours passed on a 12h timer, timeLeft is 6h. 
+        // Maybe we just store `topicExpirations` as { expiresAt, duration } in future?
+        // For now, let's just show a visual indicator of "Time Remaining" assuming a generic "full" circle is 100% capacity/health?
+        // Wait, "how much time has passed". 
+        // I'll make a simplifying assumption: The ring represents "Time Left". 
+        // Since I don't have start time, I'll calculate percentage based on the *closest standard duration* ceiling.
+
+        if (timeLeft <= h12) duration = h12;
+        else if (timeLeft <= d7) duration = d7;
+        else duration = d30;
+
+        const progress = Math.min(100, Math.max(0, (timeLeft / duration) * 100));
+
+        // Format Label
+        let label = '';
+        if (timeLeft < 3600 * 1000) label = `${Math.ceil(timeLeft / 60000)}m left`;
+        else if (timeLeft < 86400 * 1000) label = `${Math.ceil(timeLeft / 3600000)}h left`;
+        else label = `${Math.ceil(timeLeft / 86400000)}d left`;
+
+        return { progress, label, isForever: false };
+    };
+
+    // Radius for SVG
+    const radius = 8;
+    const circumference = 2 * Math.PI * radius;
+
     // Sort Regions by XP
     const regions = Object.entries(profile.region_stats || {})
         .sort(([, a], [, b]) => (b as any).visitCount - (a as any).visitCount)
         .slice(0, 3); // Top 3
 
     return (
-        <div className="p-6 pb-0">
+        <div className="p-6 pb-0 relative">
+            {/* List Overlay */}
+            {activeList && (
+                <div className="absolute inset-0 z-20 bg-[#0a0a0a] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+                    <div className="flex items-center justify-between p-4 border-b border-white/10 bg-white/5">
+                        <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                            <span className="w-1 h-4 bg-blue-500 rounded-full"></span>
+                            {activeList} List
+                        </h3>
+                        <button
+                            onClick={() => setActiveList(null)}
+                            className="p-1 rounded-full hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-white/10">
+                        {getListData().length === 0 ? (
+                            <div className="h-full flex flex-col items-center justify-center text-gray-500 text-xs italic">
+                                <Sparkles size={20} className="mb-2 opacity-30" />
+                                No items found.
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-2 gap-2 p-2">
+                                {getListData().map((item, idx) => {
+                                    // Calculate Status for Following List
+                                    let status = { progress: 100, label: '', isForever: true };
+                                    if (activeList === 'Following') {
+                                        status = getTopicStatus(item as string);
+                                    }
+
+                                    return (
+                                        <div key={idx} className="px-3 py-2 bg-white/5 rounded-lg text-sm text-gray-200 border border-white/5 flex items-center gap-2 group/item">
+
+                                            {/* Icon / Ring */}
+                                            {activeList === 'Following' ? (
+                                                <div className="relative w-5 h-5 shrink-0 flex items-center justify-center">
+                                                    {status.isForever ? (
+                                                        <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.6)]" />
+                                                    ) : (
+                                                        <>
+                                                            {/* SVG Ring */}
+                                                            <svg className="w-full h-full -rotate-90">
+                                                                <circle
+                                                                    cx="10" cy="10" r={radius}
+                                                                    fill="none"
+                                                                    stroke="rgba(255,255,255,0.1)"
+                                                                    strokeWidth="2"
+                                                                />
+                                                                <circle
+                                                                    cx="10" cy="10" r={radius}
+                                                                    fill="none"
+                                                                    stroke={status.progress < 20 ? '#EF4444' : '#3B82F6'}
+                                                                    strokeWidth="2"
+                                                                    strokeDasharray={circumference}
+                                                                    strokeDashoffset={circumference - (status.progress / 100) * circumference}
+                                                                    strokeLinecap="round"
+                                                                    className="transition-all duration-500 ease-out"
+                                                                />
+                                                            </svg>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <div className="w-1.5 h-1.5 rounded-full bg-blue-500/50"></div>
+                                            )}
+
+                                            <div className="flex flex-col flex-1 min-w-0">
+                                                <span className="truncate capitalize leading-tight">{item}</span>
+                                                {activeList === 'Following' && !status.isForever && (
+                                                    <span className={`text-[9px] font-mono leading-none mt-0.5 ${status.progress < 20 ? 'text-red-400' : 'text-blue-300/70'}`}>
+                                                        {status.label}
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            {activeList === 'Following' && isOwnProfile && (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleUnfollow(item as string);
+                                                    }}
+                                                    className="opacity-0 group-hover/item:opacity-100 p-1 hover:bg-red-500/20 hover:text-red-400 rounded transition-all"
+                                                    title="Unfollow"
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
             <div className="flex items-start justify-between">
                 <div className="flex items-center gap-4">
                     <div className="relative group">
                         <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-white/20">
                             <img src={profile.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${profile.username}`} alt={profile.full_name} className="w-full h-full object-cover" />
                         </div>
-                        <div className="absolute -bottom-2 -right-2 bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#0a0a0a]">
+                        <div className="absolute -bottom-2 -right-2 bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded-full border border-[#0a0a0a]">
                             LVL {level}
                         </div>
                     </div>
@@ -111,21 +286,48 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profile, aiLocalsCount, i
                 </div>
 
                 <div className="col-span-2 grid grid-cols-3 gap-2">
-                    <div className="text-center p-2 bg-white/5 rounded-lg flex flex-col justify-center">
-                        <div className="text-lg font-bold text-white">{(profile.visited_countries || []).length}</div>
+                    <div
+                        onClick={() => setActiveList('Countries')}
+                        className="text-center p-2 bg-white/5 rounded-lg flex flex-col justify-center hover:bg-white/10 transition-colors cursor-pointer group"
+                    >
+                        <div className="text-lg font-bold text-white group-hover:text-blue-400 transition-colors flex items-baseline justify-center gap-1">
+                            {(profile.visited_countries || []).length}
+                            <span className="text-[10px] text-gray-500 font-medium">/ 195</span>
+                        </div>
                         <div className="text-[10px] text-gray-500 uppercase">Countries</div>
                     </div>
-                    <div className="text-center p-2 bg-white/5 rounded-lg flex flex-col justify-center">
-                        <div className="text-lg font-bold text-white">{(profile.visited_continents || []).length}</div>
+                    <div
+                        onClick={() => setActiveList('Continents')}
+                        className="text-center p-2 bg-white/5 rounded-lg flex flex-col justify-center hover:bg-white/10 transition-colors cursor-pointer group"
+                    >
+                        <div className="text-lg font-bold text-white group-hover:text-blue-400 transition-colors flex items-baseline justify-center gap-1">
+                            {(profile.visited_continents || []).length}
+                            <span className="text-[10px] text-gray-500 font-medium">/ 7</span>
+                        </div>
                         <div className="text-[10px] text-gray-500 uppercase">Continents</div>
                     </div>
-                    <div className="text-center p-2 bg-white/5 rounded-lg border border-white/10 opacity-50 cursor-not-allowed" title="View in Sidebar">
-                        <div className="text-lg font-bold text-white">{aiLocalsCount}</div>
-                        <div className="text-[10px] text-gray-500 uppercase">AI Locals</div>
+                    {/* Following Tab */}
+                    <div
+                        onClick={() => setActiveList('Following')}
+                        className="text-center p-2 bg-white/5 rounded-lg border border-white/10 flex flex-col justify-center hover:bg-white/10 transition-colors cursor-pointer group"
+                        title="View Followed Topics"
+                    >
+                        <div className="text-lg font-bold text-blue-400 group-hover:text-blue-300 transition-colors">{followingCount}</div>
+                        <div className="text-[10px] text-gray-500 uppercase">Following</div>
                     </div>
                 </div>
             </div>
-        </div>
+
+
+            {/* DEBUG UI */}
+            <div className="mt-4 p-2 text-[10px] text-gray-500 font-mono bg-black/50 rounded border border-white/5 mx-6 mb-4">
+                <p className="font-bold text-gray-400">DEBUG PANEL</p>
+                <p>Count: {followingCount}</p>
+                <p>Keys: {Object.keys(profileData.topicExpirations || {}).join(', ') || 'None'}</p>
+                <p>Raw: {JSON.stringify(profileData.topicExpirations || {})}</p>
+            </div>
+
+        </div >
     );
 };
 
@@ -832,6 +1034,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, targetUser
                     )}
                 </div>
             </div>
+
             {selectedPost && (
                 <PostDetailModal
                     post={selectedPost}

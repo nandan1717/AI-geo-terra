@@ -25,98 +25,68 @@ export const StoryBar: React.FC = () => {
         }
     }, [isReplying, isGenerating, activeStoryIdx]);
 
-    // Load / Init Stories
+    // Load / Init Stories (GDELT News Mode)
     useEffect(() => {
         const initStories = async () => {
             try {
-                // 1. Fetch Real Stories (Last 6 Hours only)
-                const { socialService } = await import('../services/socialService');
-                const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
-                const realPosts = await socialService.fetchPosts(undefined, 'story', sixHoursAgo);
-                let realStories: Story[] = [];
+                // 1. Fetch Global News Events (using existing service)
+                const { fetchGlobalEvents } = await import('../services/gdeltService');
 
-                if (realPosts && realPosts.length > 0) {
-                    const storyMap = new Map<string, Story>();
-                    realPosts.forEach(post => {
-                        const userId = post.user_id;
-                        if (!storyMap.has(userId)) {
-                            storyMap.set(userId, {
-                                id: userId,
-                                user: {
-                                    name: post.user.full_name,
-                                    handle: post.user.username,
-                                    avatarUrl: post.user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.user.username}`,
-                                    isAi: false
-                                },
-                                items: [],
-                                viewed: false,
-                                expiresAt: new Date(post.created_at).getTime() + 6 * 60 * 60 * 1000 // Expire 6h after creation
-                            });
-                        }
-                        const story = storyMap.get(userId)!;
-                        story.items.push({
-                            id: post.id.toString(),
-                            type: 'image',
-                            url: post.image_url || 'https://via.placeholder.com/400x800',
-                            duration: 5000,
-                            caption: post.caption,
-                            takenAt: post.created_at
-                        });
-                    });
-                    realStories = Array.from(storyMap.values());
-                }
+                // Fetch plenty to filter for images
+                const newsEvents = await fetchGlobalEvents(50, 'Trending');
 
-                // 2. Fetch/Generate AI Stories (Always fetch to keep bar populated)
-                let aiStories: Story[] = [];
-                const storedAi = localStorage.getItem(STORAGE_KEY + '_ai');
-                if (storedAi) {
-                    const parsed = JSON.parse(storedAi);
-                    if (parsed.length > 0 && parsed[0].expiresAt > Date.now()) {
-                        aiStories = parsed;
-                    }
-                }
+                // 2. Filter & Map to Stories
+                // Only use events with images
+                const visualNews = newsEvents.filter(e => e.postImageUrl && e.postImageUrl.startsWith('http'));
 
-                if (aiStories.length === 0) {
-                    // Get latest persona for context
-                    let latestPersonaName: string | undefined;
+                const newsStories: Story[] = visualNews.map(event => {
+                    // Extract domain as "User Handle"
+                    let sourceName = "Global News";
                     try {
-                        const recentSessions = await chatService.getRecentSessions();
-                        if (recentSessions.length > 0) latestPersonaName = recentSessions[0].persona_name;
+                        if (event.sourceUrl) {
+                            const url = new URL(event.sourceUrl);
+                            sourceName = url.hostname.replace('www.', '').split('.')[0].toUpperCase();
+                        }
                     } catch (e) { }
 
+                    return {
+                        id: event.id,
+                        user: {
+                            name: sourceName, // e.g. "CNN"
+                            handle: event.country || "Global", // e.g. "US"
+                            avatarUrl: `https://ui-avatars.com/api/?name=${sourceName}&background=random&color=fff`, // Simple avatar based on source
+                            isAi: false
+                        },
+                        items: [{
+                            id: event.id,
+                            type: 'image',
+                            url: event.postImageUrl!,
+                            duration: 8000, // Give more time for reading headlines
+                            caption: event.name, // The Headline
+                            takenAt: event.publishedAt || new Date().toISOString()
+                        }],
+                        viewed: false,
+                        expiresAt: Date.now() + 24 * 60 * 60 * 1000 // 24h expiry
+                    };
+                });
 
-                    aiStories = await aiContentService.generateStoryBatch(8, latestPersonaName);
-                    localStorage.setItem(STORAGE_KEY + '_ai', JSON.stringify(aiStories));
-                }
-
-                // 3. Merge: Real Stories First, then AI Stories
-                const combinedStories = [...realStories, ...aiStories];
-
-
-                // Deduplicate by user ID just in case
-                const uniqueStories = Array.from(new Map(combinedStories.map(s => [s.user.handle, s])).values());
+                // Deduplicate by Headline to avoid spam
+                const uniqueStories = Array.from(new Map(newsStories.map(s => [s.items[0].caption, s])).values());
 
                 setStories(uniqueStories);
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(uniqueStories));
 
             } catch (e) {
-                console.error("Story load failed", e);
+                console.error("News Story load failed", e);
             }
         };
 
-        // Initial Load
         initStories();
 
-        // Listen for new stories
-        const handleNewStory = () => {
+        // Listen for updates (optional, if we auto-refresh news)
+        // const interval = setInterval(initStories, 5 * 60 * 1000); // Refresh every 5m
+        // return () => clearInterval(interval);
 
-            initStories();
-        };
-        window.addEventListener('geo-terra:story-created', handleNewStory);
-
-        return () => {
-            window.removeEventListener('geo-terra:story-created', handleNewStory);
-        };
     }, []);
 
     // Story Playback Timer & Auto-Advance
@@ -369,9 +339,10 @@ export const StoryBar: React.FC = () => {
                                     <img src={activeStory.user.avatarUrl} className="w-9 h-9 rounded-full border-2 border-black" />
                                 </div>
                                 <div className="flex flex-col drop-shadow-md">
-                                    <span className="text-white text-sm font-black tracking-wide font-display">{activeStory.user.handle.toLowerCase()}</span>
+                                    <span className="text-white text-sm font-black tracking-wide font-display uppercase">{activeStory.user.name}</span>
                                     <span className="text-amber-200/80 text-[10px] font-mono tracking-wider flex items-center gap-1">
-                                        <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse" />
+                                        <span className="opacity-90">{activeStory.user.handle}</span>
+                                        <span className="text-amber-500/50 mx-0.5">•</span>
                                         {getTimeAgo(activeStory.items[0].takenAt)}
                                     </span>
                                 </div>

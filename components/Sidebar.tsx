@@ -8,6 +8,7 @@ interface SidebarProps {
     onNotificationsClick?: () => void;
     onNewsClick?: () => void;
     onPostClick?: () => void;
+    onSettingsClick?: () => void; // Added Settings Handler
     unreadNotifications?: number;
     profileId?: string;
     chatsId?: string;
@@ -23,6 +24,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     onNotificationsClick,
     onNewsClick,
     onPostClick,
+    onSettingsClick, // Destructure
     unreadNotifications = 0,
     profileId,
     chatsId,
@@ -113,15 +115,15 @@ const Sidebar: React.FC<SidebarProps> = ({
                     </span>
                 </button>
 
-                {/* 6. Global Intel (Moved Here) */}
+                {/* 6. Settings (Moved Here from UIOverlay) */}
                 <button
-                    onClick={onNewsClick}
-                    className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-blue-400 transition-all active:scale-95 group relative animate-pulse"
-                    title="Global Intel"
+                    onClick={onSettingsClick}
+                    className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-gray-400 transition-all active:scale-95 group relative"
+                    title="Settings"
                 >
-                    <Globe size={20} />
+                    <Settings size={20} />
                     <span className="absolute right-full mr-3 bg-black/80 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
-                        Global Intel
+                        Settings
                     </span>
                 </button>
 

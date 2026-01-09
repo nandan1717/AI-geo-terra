@@ -13,6 +13,40 @@ interface SceneProps {
   onLoadMore?: () => void;
 }
 
+// Helper to generate a consistent, bright color from a string ID
+const getDeterministicColor = (id: string): [number, number, number] => {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  }
+
+  // HSL to RGB conversion
+  // Hue: 0-1 based on hash
+  const h = Math.abs(hash % 360) / 360;
+  // Saturation: High (0.8) for pop
+  const s = 0.8;
+  // Lightness: Medium-High (0.6) for glow
+  const l = 0.6;
+
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+
+  const hue2rgb = (p: number, q: number, t: number) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+
+  const r = hue2rgb(p, q, h + 1 / 3);
+  const g = hue2rgb(p, q, h);
+  const b = hue2rgb(p, q, h - 1 / 3);
+
+  return [r, g, b];
+};
+
 const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selectedMarker, onMarkerClick, isPaused, markerColor = [1, 0.5, 0.1], onLoadMore }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pointerInteracting = useRef<{ x: number, y: number } | null>(null);
@@ -66,16 +100,11 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
     if (!canvasRef.current) return;
 
     const cobeMarkers = markers
-      .filter(m => {
-        // Hide dots for News Events
-        if (m.type === 'Event') return false;
-        // Hide dots for AI Posts (Feed items)
-        if (m.type === 'Post' && !m.isUserPost) return false;
-        return true;
-      })
       .map(m => ({
         location: [m.latitude, m.longitude],
-        size: selectedMarker && m.id === selectedMarker.id ? 0.2 : 0.15
+        size: selectedMarker && m.id === selectedMarker.id ? 0.08 : 0.02,
+        // User Request: Real users = Golden Glow, Rest = Default White
+        color: m.isUserPost ? [1, 0.8, 0.2] : [1, 1, 1]
       }));
 
     const globe = createGlobe(canvasRef.current, {
@@ -97,17 +126,6 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
       onRender: (state) => {
         if (!pointerInteracting.current && !isPaused) {
           rotationOffset.current.phi += 0.003;
-        }
-
-        // Pulse
-        if (state.markers) {
-          state.markers.forEach((marker, i) => {
-            // Safety check in case of mismatch
-            if (cobeMarkers[i]) {
-              const baseSize = cobeMarkers[i].size;
-              marker.size = baseSize + (baseSize * Math.sin((Date.now() / 1000) * 2 + i) * (markerColor[1] === 0.8 ? 0.2 : 0.05));
-            }
-          });
         }
 
         state.phi = phi.get() + pointerInteractionMovement.current.x + rotationOffset.current.phi;

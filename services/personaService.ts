@@ -202,5 +202,25 @@ export const personaService = {
             console.error("getPersonaByName failed", e);
             return null;
         }
+    },
+
+    /**
+     * Search personas by name, bio, or topics.
+     */
+    searchPersonas: async (query: string): Promise<Persona[]> => {
+        if (!query || query.length < 2) return [];
+        try {
+            const { data, error } = await supabase
+                .from('personas')
+                .select('*')
+                .or(`name.ilike.%${query}%,bio.ilike.%${query}%`)
+                .limit(10);
+
+            if (error) throw error;
+            return data || [];
+        } catch (e) {
+            console.error("Persona search failed", e);
+            return [];
+        }
     }
 };

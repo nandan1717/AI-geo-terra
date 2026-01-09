@@ -22,6 +22,7 @@ interface NewsContextType {
     // Deep Linking
     focusedEventId: string | null;
     setFocusedEventId: (id: string | null) => void;
+    injectEvent: (event: LocationMarker) => void; // New: Add search result to feed
 }
 
 const NewsContext = createContext<NewsContextType | undefined>(undefined);
@@ -94,31 +95,8 @@ export const NewsProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Update ref
             gdeltCountRef.current = targetGdeltCount;
 
-            // 2. SLOW PATH: AI Generation (Background)
-            // We do not await this to block the UI, but we track 'loading' state for it?
-            // Actually, if we unset isLoading, the user sees content.
-            // We can let AI generate in background and append.
+            // AI Generation Removed as per user request (2025-01-09)
             setIsLoading(false); // Unblock UI!
-
-            aiContentService.batchGeneratePosts(BATCH_SIZE, vibeTopic).then(aiPosts => {
-                const newAiItems: LocationMarker[] = [];
-                aiPosts.forEach((p: LocationMarker) => {
-                    if (!p.id.startsWith('ai-')) p.id = `ai-${Date.now()}-${Math.random()}`;
-                    if (!seenIdsRef.current.has(p.id)) {
-                        seenIdsRef.current.add(p.id);
-                        newAiItems.push(p);
-                    }
-                });
-
-                if (newAiItems.length > 0) {
-                    setNewsEvents(prev => {
-                        // Naive append. Ideally interleave, but ensuring speed is key for now.
-                        return [...prev, ...newAiItems];
-                    });
-                }
-            }).catch(err => console.error("AI Gen Failed", err));
-
-            // Stop here since we already cleared isLoading
             return;
 
         } catch (e) {
@@ -148,6 +126,14 @@ export const NewsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         fetchNewsBatch(false);
     }, [hasMore, isLoading, fetchNewsBatch]);
 
+    // Inject Event Helper
+    const injectEvent = useCallback((event: LocationMarker) => {
+        if (!seenIdsRef.current.has(event.id)) {
+            seenIdsRef.current.add(event.id);
+            setNewsEvents(prev => [event, ...prev]); // Add to top
+        }
+    }, []);
+
     return (
         <NewsContext.Provider value={{
             newsEvents,
@@ -161,7 +147,8 @@ export const NewsProvider: React.FC<{ children: React.ReactNode }> = ({ children
             selectedVibe,
             setVibe: setSelectedVibe,
             focusedEventId,
-            setFocusedEventId
+            setFocusedEventId,
+            injectEvent
         }}>
             {children}
         </NewsContext.Provider>

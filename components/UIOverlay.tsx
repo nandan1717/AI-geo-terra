@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Search, MapPin, X, Loader2, Radio, Info, Users, Send, Navigation, Globe, ChevronLeft, Sparkles, Activity, AlertCircle as AlertIcon, LogOut, HelpCircle, User as UserIcon, Clock, Minus, Settings as SettingsPanelIcon } from 'lucide-react';
+import { Search, MapPin, X, Loader2, Radio, Info, Users, Send, Navigation, Globe, ChevronLeft, Sparkles, Activity, AlertCircle as AlertIcon, LogOut, HelpCircle, User as UserIcon, Clock, Minus, Settings as SettingsPanelIcon, Heart } from 'lucide-react';
 import { LocationMarker, SearchState, LocalPersona, ChatMessage, CrowdMember, Notification } from '../types';
 
 import WeatherTimeDisplay from './WeatherTimeDisplay';
@@ -10,6 +10,7 @@ import NotificationPermissionCard from './NotificationPermissionCard';
 const ProfileModal = React.lazy(() => import('./ProfileModal'));
 import AILocalsList from './AILocalsList';
 import RealUsersList from './RealUsersList';
+import { recommendationService } from '../services/recommendationService';
 import { supabase } from '../services/supabaseClient';
 import NewsFeed from './NewsFeed';
 import { useNews } from '../context/NewsContext';
@@ -121,11 +122,71 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
     lockdownMode = false,
     onChatToggle,
     onPostClick,
+    onSearchInteraction,
 }) => {
-    const { isNewsFeedOpen, toggleNewsFeed, newsEvents } = useNews();
+    const { isNewsFeedOpen, toggleNewsFeed, newsEvents, injectEvent, setFocusedEventId } = useNews();
     const [inputValue, setInputValue] = useState('');
+    const [placeholder, setPlaceholder] = useState("Search global news...");
     const [chatInput, setChatInput] = useState('');
     const [isMobile, setIsMobile] = useState(false);
+
+    // Follow Logic
+    const [isQueryFollowed, setIsQueryFollowed] = useState(false);
+    const [showFollowMenu, setShowFollowMenu] = useState(false);
+
+    useEffect(() => {
+        if (searchState.query) {
+            setIsQueryFollowed(recommendationService.isFollowing(searchState.query));
+        }
+    }, [searchState.query, showFollowMenu]); // Re-check when menu interactions happen
+
+    const handleFollowToggle = () => {
+        if (!searchState.query) return;
+
+        if (isQueryFollowed) {
+            // If already followed, just unfollow immediately (or show menu? let's unfollow for simplicity)
+            recommendationService.unfollow(searchState.query);
+            setIsQueryFollowed(false);
+        } else {
+            // Open Menu
+            setShowFollowMenu(!showFollowMenu);
+        }
+    };
+
+    const handleFollowDuration = (duration: '12h' | '1w' | '30d' | 'forever') => {
+        if (!searchState.query) return;
+        recommendationService.follow(searchState.query, duration);
+        setIsQueryFollowed(true);
+        setShowFollowMenu(false);
+    };
+
+    // Cycling Placeholders for Global News
+    useEffect(() => {
+        const hints = [
+            "Search global news...",
+            "What's happening in Paris?",
+            "Wildfires in California",
+            "Tech news in Japan",
+            "Political updates..."
+        ];
+        let index = 0;
+        const interval = setInterval(() => {
+            index = (index + 1) % hints.length;
+            setPlaceholder(hints[index]);
+        }, 3000);
+        return () => clearInterval(interval);
+    }, []);
+
+    // Search Interaction Tracking
+    const [isSearchFocused, setIsSearchFocused] = useState(false);
+    const isSearchActive = isSearchFocused || inputValue.length > 0;
+
+    useEffect(() => {
+        if (onSearchInteraction) {
+            onSearchInteraction(isSearchActive);
+        }
+    }, [isSearchActive, onSearchInteraction]);
+
     const [isProfileOpen, setIsProfileOpen] = useState(false);
     const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
     const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
@@ -162,6 +223,27 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
             window.removeEventListener('geo-terra:view-profile', handleViewProfile as EventListener);
         }
     }, []);
+
+    // Deep Link Listener for News Items (Search Results -> Feed)
+    useEffect(() => {
+        const handleViewNewsItem = (e: CustomEvent<{ event: any }>) => {
+            if (e.detail?.event) {
+                // 1. Inject into Feed (ensure it exists in list)
+                injectEvent(e.detail.event);
+                // 2. Focus ID for scrolling
+                setFocusedEventId(e.detail.event.id);
+                // 3. Open Feed if closed
+                if (!isNewsFeedOpen) {
+                    toggleNewsFeed();
+                }
+            }
+        };
+
+        window.addEventListener('geo-terra:view-news-item', handleViewNewsItem as EventListener);
+        return () => {
+            window.removeEventListener('geo-terra:view-news-item', handleViewNewsItem as EventListener);
+        };
+    }, [isNewsFeedOpen, injectEvent, setFocusedEventId, toggleNewsFeed]);
 
     // Lockdown Mode Effect
     useEffect(() => {
@@ -272,8 +354,8 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
 
 
             {/* --- SIDEBAR --- */}
-            {/* Hide Sidebar if any panel is open to prevent overlap */}
-            {!(isProfileOpen || isNotificationPanelOpen || isSettingsPanelOpen || isAddFriendsOpen || isRealFriendsOpen || isNewsFeedOpen) && (
+            {/* Hide Sidebar if any panel is open to prevent overlap OR if Search is Active */}
+            {!(isProfileOpen || isNotificationPanelOpen || isSettingsPanelOpen || isAddFriendsOpen || isRealFriendsOpen || isNewsFeedOpen || isSearchActive) && (
                 <>
                     <Sidebar
                         onProfileClick={() => {
@@ -335,6 +417,12 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                         // Injecting News Toggle into Sidebar
                         onNewsClick={toggleNewsFeed}
                         onPostClick={onPostClick}
+                        onSettingsClick={() => {
+                            setIsSettingsPanelOpen(!isSettingsPanelOpen);
+                            setIsNotificationPanelOpen(false);
+                            setIsAddFriendsOpen(false);
+                            setIsRealFriendsOpen(false);
+                        }}
                     />
 
                 </>
@@ -484,8 +572,13 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                                             ref={inputRef}
                                             type="text"
                                             value={inputValue}
+                                            onFocus={() => setIsSearchFocused(true)}
+                                            onBlur={() => {
+                                                // Small delay to allow clicking suggestions
+                                                setTimeout(() => setIsSearchFocused(false), 200);
+                                            }}
                                             onChange={(e) => setInputValue(e.target.value)}
-                                            placeholder="Search planet..."
+                                            placeholder={placeholder}
                                             className="flex-1 bg-transparent border-none outline-none text-sm md:text-base text-white placeholder-gray-500 w-full font-medium"
                                             style={{ fontSize: '16px' }}
                                         />
@@ -532,19 +625,17 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                                 )}
                             </div>
 
-                            {/* Settings Button (Moved Here) */}
+                            {/* Global Intel Button (Moved Here) */}
                             <button
-                                id="settings-btn"
-                                onClick={() => {
-                                    setIsSettingsPanelOpen(!isSettingsPanelOpen);
-                                    setIsNotificationPanelOpen(false);
-                                    setIsAddFriendsOpen(false);
-                                    setIsRealFriendsOpen(false);
-                                }}
-                                className="w-12 h-12 md:w-12 md:h-12 bg-black/60 backdrop-blur-xl border border-white/20 rounded-full flex items-center justify-center text-white hover:bg-white/10 transition-all active:scale-95 shadow-2xl relative group flex"
-                                title="Settings"
+                                id="global-intel-btn"
+                                onClick={toggleNewsFeed}
+                                className="w-12 h-12 md:w-12 md:h-12 bg-black/60 backdrop-blur-xl border border-white/20 rounded-full flex items-center justify-center text-blue-400 hover:bg-white/10 transition-all active:scale-95 shadow-2xl relative group flex animate-pulse"
+                                title="Global Intel"
                             >
-                                <SettingsPanelIcon size={20} />
+                                <Globe size={20} />
+                                <span className="absolute right-full mr-3 bg-black/80 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
+                                    Global Intel
+                                </span>
                             </button>
                         </div>
                     </div>
@@ -569,6 +660,48 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                                     {markers.length > 1 ? 'Detected Sectors' : 'Target Acquired'}
                                 </h3>
                                 <div className="flex items-center gap-3">
+                                    {/* Follow Query Button */}
+                                    <div className="relative">
+                                        {searchState.query && (
+                                            <button
+                                                onClick={handleFollowToggle}
+                                                className={`flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full border transition-all ${isQueryFollowed
+                                                    ? 'bg-blue-600 border-blue-600 text-white shadow-[0_0_10px_rgba(37,99,235,0.4)]'
+                                                    : 'border-white/20 text-blue-400 hover:border-blue-400 hover:bg-blue-400/10'
+                                                    }`}
+                                            >
+                                                {isQueryFollowed ? <Heart size={10} fill="currentColor" /> : <Heart size={10} />}
+                                                <span className="max-w-[80px] truncate">{isQueryFollowed ? 'Following' : 'Follow'}</span>
+                                            </button>
+                                        )}
+
+                                        {/* Duration Menu */}
+                                        {showFollowMenu && !isQueryFollowed && (
+                                            <div className="absolute top-full mt-2 right-0 bg-[#1a1a1a] border border-white/10 rounded-lg shadow-xl z-50 overflow-hidden min-w-[120px] animate-in fade-in zoom-in-95 duration-200">
+                                                <div className="px-3 py-2 text-[10px] text-gray-500 font-bold uppercase tracking-wider bg-white/5 border-b border-white/5">
+                                                    Follow For...
+                                                </div>
+                                                <button onClick={() => handleFollowDuration('12h')} className="w-full text-left px-3 py-2 text-xs text-white hover:bg-blue-500/20 hover:text-blue-400 flex items-center justify-between group">
+                                                    <span>12 Hours</span>
+                                                    <Clock size={10} className="opacity-0 group-hover:opacity-100" />
+                                                </button>
+                                                <button onClick={() => handleFollowDuration('1w')} className="w-full text-left px-3 py-2 text-xs text-white hover:bg-blue-500/20 hover:text-blue-400 flex items-center justify-between group">
+                                                    <span>1 Week</span>
+                                                    <Clock size={10} className="opacity-0 group-hover:opacity-100" />
+                                                </button>
+                                                <button onClick={() => handleFollowDuration('30d')} className="w-full text-left px-3 py-2 text-xs text-white hover:bg-blue-500/20 hover:text-blue-400 flex items-center justify-between group">
+                                                    <span>30 Days</span>
+                                                    <Clock size={10} className="opacity-0 group-hover:opacity-100" />
+                                                </button>
+                                                <div className="h-px bg-white/10 my-0.5"></div>
+                                                <button onClick={() => handleFollowDuration('forever')} className="w-full text-left px-3 py-2 text-xs text-white hover:bg-blue-500/20 hover:text-blue-400 flex items-center justify-between group">
+                                                    <span>Forever</span>
+                                                    <Sparkles size={10} className="opacity-0 group-hover:opacity-100" />
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+
                                     <span className="text-xs text-gray-500">{markers.length} Found</span>
                                     <button onClick={onClearResults} className="text-gray-500 hover:text-white transition-colors">
                                         <X size={14} />
