@@ -221,6 +221,12 @@ const App: React.FC = () => {
 
       // Subscribe to notifications when user logs in
       if (session?.user) {
+        // Set current user for recommendation service (data isolation)
+        import('./services/recommendationService').then(({ recommendationService }) => {
+          recommendationService.setCurrentUser(session.user.id);
+          recommendationService.syncProfile(); // Sync from DB
+        });
+
         const unsubscribe = subscribeToNotifications(session.user.id, (notifs) => {
           setNotifications(notifs);
           setUnreadCount(getUnreadCount(notifs));
@@ -237,11 +243,33 @@ const App: React.FC = () => {
             setTimeout(() => setShowPermissionCard(true), 3000);
           }
 
-          // Initialize FCM Listener
+          // Initialize FCM Listener for foreground messages
           import('./services/firebase').then(({ onMessageListener }) => {
-            onMessageListener().then((payload: any) => {
-              console.log('Foreground FCM Message:', payload);
-            });
+            const setupListener = () => {
+              onMessageListener().then((payload: any) => {
+                console.log('Foreground FCM Message:', payload);
+
+                // Create an in-app notification from the FCM payload
+                if (payload?.notification || payload?.data) {
+                  const title = payload.notification?.title || payload.data?.title || 'New Update';
+                  const body = payload.notification?.body || payload.data?.body || '';
+
+                  createNotification(session.user.id, 'FCM_MESSAGE', {
+                    title,
+                    body,
+                    data: payload.data
+                  }, {
+                    title,
+                    body,
+                    icon: 'bell'
+                  });
+                }
+
+                // Re-subscribe for next message
+                setupListener();
+              });
+            };
+            setupListener();
           });
 
           // Fetch user profile and handle Welcome/Login notification
@@ -320,8 +348,6 @@ const App: React.FC = () => {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      // Note: We don't re-run the welcome logic here to avoid duplication on auth refresh
-      // The initial session check handles the main login flow.
 
       if (session?.user) {
         const unsubscribe = subscribeToNotifications(session.user.id, (notifs) => {
@@ -335,33 +361,6 @@ const App: React.FC = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Check for re-engagement opportunities on load
-  useEffect(() => {
-    if (session?.user) {
-      import('./services/supportService').then(({ supportService }) => {
-        // Request notification permission immediately
-        // REMOVED: Notification prompting can only be done from a user gesture.
-        // We rely on NotificationPermissionCard for this now.
-        /* 
-        if ('Notification' in window && Notification.permission === 'default') {
-          Notification.requestPermission();
-        } 
-        */
-
-        // Delay slightly to not compete with initial load
-        setTimeout(() => {
-          supportService.checkAndReengage(session.user.id);
-
-          // Trigger AI Engagement Check (New Nudge Logic)
-          import('./services/engagementService').then(({ engagementService }) => {
-            engagementService.checkAndEngage(session.user.id);
-          });
-
-        }, 5000);
-      });
-    }
-  }, [session]);
-
 
 
   useEffect(() => {
@@ -373,6 +372,10 @@ const App: React.FC = () => {
   }, [session]);
 
   const handleSignOut = async () => {
+    // Clear user-specific data before signing out
+    import('./services/recommendationService').then(({ recommendationService }) => {
+      recommendationService.clearCurrentUser();
+    });
     await supabase.auth.signOut();
     setSession(null);
   };

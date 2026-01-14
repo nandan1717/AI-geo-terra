@@ -1,5 +1,6 @@
 import { getMessaging, getToken, onMessage, deleteToken } from "firebase/messaging";
 import { app, firebaseConfig } from "./firebase";
+import logger from './logger';
 
 const messaging = getMessaging(app);
 
@@ -44,3 +45,56 @@ export const onMessageListener = () =>
             resolve(payload);
         });
     });
+
+/**
+ * Subscribe the current device to a specific FCM topic.
+ * Calls the 'manage-subscriptions' Edge Function.
+ */
+export const subscribeToTopic = async (topic: string): Promise<boolean> => {
+    try {
+        const token = await requestForToken();
+        if (!token) return false;
+
+        const { supabase } = await import('./supabaseClient');
+        const { data, error } = await supabase.functions.invoke('manage-subscriptions', {
+            body: { token, topic, subscribe: true }
+        });
+
+        if (error) {
+            console.error(`Failed to subscribe to topic ${topic}:`, error);
+            return false;
+        }
+
+        logger.debug(`Subscribed to topic: ${topic}`);
+        return true;
+    } catch (e) {
+        console.error("Error subscribing to topic:", e);
+        return false;
+    }
+};
+
+/**
+ * Unsubscribe the current device from a specific FCM topic.
+ */
+export const unsubscribeFromTopic = async (topic: string): Promise<boolean> => {
+    try {
+        const token = await requestForToken();
+        if (!token) return false;
+
+        const { supabase } = await import('./supabaseClient');
+        const { data, error } = await supabase.functions.invoke('manage-subscriptions', {
+            body: { token, topic, subscribe: false }
+        });
+
+        if (error) {
+            console.error(`Failed to unsubscribe from topic ${topic}:`, error);
+            return false;
+        }
+
+        logger.debug(`Unsubscribed from topic: ${topic}`);
+        return true;
+    } catch (e) {
+        console.error("Error unsubscribing from topic:", e);
+        return false;
+    }
+};

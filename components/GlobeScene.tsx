@@ -411,7 +411,7 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
               e.stopPropagation();
               onMarkerClick(m);
             }}
-            className="absolute flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-amber-500/30 shadow-[0_0_15px_rgba(251,191,36,0.2)] transition-opacity duration-200 cursor-pointer group hover:bg-black/80 hover:border-amber-500/60"
+            className="absolute flex items-center gap-2 px-3 py-1.5 rounded-full bg-gradient-to-r from-black/70 via-black/60 to-black/70 backdrop-blur-md border border-yellow-500/40 shadow-[0_0_20px_rgba(255,200,100,0.3)] transition-opacity duration-200 cursor-pointer group hover:bg-black/80 hover:border-yellow-400/60 hover:shadow-[0_0_25px_rgba(255,200,100,0.5)]"
             style={{
               transform: 'translate(-50%, -50%)',
               opacity: 0,
@@ -419,8 +419,8 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
               pointerEvents: 'auto'
             }}
           >
-            <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0"></div>
-            <span className="text-[10px] text-amber-100 font-medium drop-shadow-md leading-tight">{m.name}</span>
+            <div className="w-2 h-2 rounded-full bg-gradient-to-r from-yellow-400 to-orange-400 animate-pulse shrink-0 shadow-[0_0_8px_rgba(255,200,100,0.6)]"></div>
+            <span className="text-[10px] text-yellow-100 font-medium drop-shadow-md leading-tight">{m.name}</span>
           </div>
         ))}
       </div>

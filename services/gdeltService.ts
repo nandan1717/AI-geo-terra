@@ -1,4 +1,5 @@
 import { LocationMarker } from '../types';
+import logger from './logger';
 
 // Basic Vibe Definition
 type VibeType = 'High Energy' | 'Chill' | 'Inspiration' | 'Intense' | 'Trending';
@@ -20,7 +21,7 @@ export const fetchGlobalEvents = async (limit: number = 60, vibe: VibeType = 'Tr
         console.warn("Edge Function served-feed failed, falling back to direct query:", response.error);
         // Fallback will happen below
       } else {
-        console.log("Fetched personalized feed from Edge Function");
+        logger.debug("Fetched personalized feed from Edge Function");
         data = response.data;
       }
     }

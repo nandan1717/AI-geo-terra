@@ -83,9 +83,9 @@ export const StoryBar: React.FC = () => {
 
         initStories();
 
-        // Listen for updates (optional, if we auto-refresh news)
-        // const interval = setInterval(initStories, 5 * 60 * 1000); // Refresh every 5m
-        // return () => clearInterval(interval);
+        // Auto-refresh every 15 minutes
+        const interval = setInterval(initStories, 15 * 60 * 1000);
+        return () => clearInterval(interval);
 
     }, []);
 

@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "lib": [
+      "deno.ns"
+    ],
+    "strict": false
+  },
+  "imports": {
+    "std/": "https://deno.land/std@0.168.0/",
+    "@supabase/supabase-js": "jsr:@supabase/supabase-js@2",
+    "cors": "https://deno.land/x/cors@v2.0.0/mod.ts",
+    "jose": "https://esm.sh/jose@5.2.0"
+  },
+  "exclude": [
+    "node_modules"
+  ]
+}

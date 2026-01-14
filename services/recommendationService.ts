@@ -9,15 +9,37 @@ interface InterestProfile {
     lastUpdated: number;
 }
 
-const STORAGE_KEY = 'mortals_user_interests';
+const STORAGE_KEY_PREFIX = 'mortals_user_interests_';
 const MAX_SCORE = 100;
 const DECAY_RATE = 0.95; // Decay scores by 5% on every significant update/session start
 
+// Cache current user ID to avoid repeated async calls
+let _currentUserId: string | null = null;
+
 export const recommendationService = {
+
+    // Set the current user ID (call on login)
+    setCurrentUser(userId: string) {
+        _currentUserId = userId;
+    },
+
+    // Clear user data (call on logout)
+    clearCurrentUser() {
+        _currentUserId = null;
+    },
+
+    // Get user-specific storage key
+    _getStorageKey(): string {
+        if (_currentUserId) {
+            return `${STORAGE_KEY_PREFIX}${_currentUserId}`;
+        }
+        // Fallback to legacy key for migration (will be overwritten on next sync)
+        return 'mortals_user_interests';
+    },
 
     getProfile(): InterestProfile {
         try {
-            const raw = localStorage.getItem(STORAGE_KEY);
+            const raw = localStorage.getItem(this._getStorageKey());
             if (raw) return JSON.parse(raw);
         } catch (e) {
             console.error("Failed to load interest profile", e);
@@ -27,7 +49,7 @@ export const recommendationService = {
 
     saveProfile(profile: InterestProfile) {
         profile.lastUpdated = Date.now();
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
+        localStorage.setItem(this._getStorageKey(), JSON.stringify(profile));
     },
 
     /**

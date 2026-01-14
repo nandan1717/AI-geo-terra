@@ -1,8 +1,13 @@
 
 // DeepSeek API Service
-const API_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY || process.env.VITE_DEEPSEEK_API_KEY;
+// NOTE: For security, use the aiProxyClient.ts or queryDeepSeekSecure when possible
+// This file maintains backward compatibility but should migrate to proxy calls
 
-// Use direct URL if proxy fails or for debugging (DeepSeek supports CORS)
+import { queryDeepSeekSecure } from './aiProxyClient';
+import logger from './logger';
+
+// Legacy fallback - only used if proxy is unavailable
+const LEGACY_API_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY;
 const API_URL = "https://api.deepseek.com/chat/completions";
 
 interface DeepSeekMessage {
@@ -15,14 +20,24 @@ export const queryDeepSeek = async (
   jsonMode: boolean = false,
   temperature: number = 1.3
 ): Promise<string> => {
+  // Try secure proxy first
   try {
-    if (!API_KEY) throw new Error("Missing DeepSeek API Key");
+    return await queryDeepSeekSecure(messages, jsonMode, temperature);
+  } catch (proxyError) {
+    logger.warn('AI Proxy unavailable, falling back to direct call:', proxyError);
+  }
 
+  // Legacy fallback (only if proxy fails and key is available)
+  if (!LEGACY_API_KEY) {
+    throw new Error("DeepSeek API unavailable. Please configure the ai-proxy Edge Function.");
+  }
+
+  try {
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`
+        'Authorization': `Bearer ${LEGACY_API_KEY}`
       },
       body: JSON.stringify({
         model: "deepseek-chat",
@@ -42,7 +57,7 @@ export const queryDeepSeek = async (
     return data.choices[0].message.content;
 
   } catch (error) {
-    console.error("DeepSeek Request Failed:", error);
+    logger.error("DeepSeek Request Failed:", error);
     throw error;
   }
 };
@@ -60,10 +75,7 @@ export const analyzeLocationRarity = async (
   lng: number,
   country?: string
 ): Promise<RarityResult | null> => {
-  if (!API_KEY) {
-    console.error("DeepSeek API Key missing");
-    return null;
-  }
+  // No early return - let queryDeepSeek handle proxy/fallback logic
 
   const prompt = `
     Analyze the travel rarity and significance of this location:
@@ -101,7 +113,7 @@ export const analyzeLocationRarity = async (
       continent: result.continent
     };
   } catch (error) {
-    console.error("DeepSeek Analysis Failed:", error);
+    logger.error("DeepSeek Analysis Failed:", error);
     return {
       score: 1,
       isExtraordinary: false,
@@ -134,7 +146,7 @@ export const extractTopicForNews = async (query: string): Promise<string> => {
     const parsed = JSON.parse(raw);
     return parsed.topic || query;
   } catch (e) {
-    console.warn("Topic extraction failed, using query as is", e);
+    logger.warn("Topic extraction failed, using query as is", e);
     return query;
   }
 };

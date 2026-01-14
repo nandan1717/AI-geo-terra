@@ -112,7 +112,8 @@ export type NotificationType =
   | 'NEWS_ALERT'
   | 'CONTENT_DROP'
   | 'ENGAGEMENT_SAYS'
-  | 'NEW_MESSAGE';
+  | 'NEW_MESSAGE'
+  | 'FCM_MESSAGE';
 
 export interface Notification {
   id: string;

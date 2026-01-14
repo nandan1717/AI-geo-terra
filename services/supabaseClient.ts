@@ -1,10 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder-key';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-
-
+if (!supabaseUrl || !supabaseAnonKey) {
+    console.error('CRITICAL: Supabase configuration missing!');
+    throw new Error('Supabase URL and Anon Key must be configured in environment variables.');
+}
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {

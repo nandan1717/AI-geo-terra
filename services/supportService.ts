@@ -206,32 +206,4 @@ export const supportService = {
     /**
      * Check for inactive sessions and trigger re-engagement
      */
-    async checkAndReengage(userId: string) {
-        // Check if user has any recent sessions
-        const { data } = await supabase
-            .from('support_sessions')
-            .select('created_at')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false })
-            .limit(1);
-
-        const lastSession = data?.[0];
-        const now = new Date();
-
-        // If no session ever, or last session was > 3 days ago (simulated as > 1 minute for demo)
-        const lastSessionDate = lastSession ? new Date(lastSession.created_at) : new Date(0);
-        const diffMs = now.getTime() - lastSessionDate.getTime();
-
-        // For demo purposes, check last nudge time to prevent spam
-        const lastNudge = localStorage.getItem('last_atlas_nudge');
-        const lastNudgeTime = lastNudge ? new Date(lastNudge).getTime() : 0;
-
-        // Only nudge if it's been > 24 hours since last nudge AND > 1 min since last session
-        if (diffMs > 60 * 1000 && (now.getTime() - lastNudgeTime > 24 * 60 * 60 * 1000)) {
-            await createNotification(userId, 'SYSTEM', {
-                systemMessage: "Atlas here. I noticed you haven't checked in for a while. How is your exploration going? I'm here if you need assistance."
-            });
-            localStorage.setItem('last_atlas_nudge', now.toISOString());
-        }
-    }
 };

@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
+import logger from './logger';
 
 export const firebaseConfig = {
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -35,7 +36,7 @@ export const requestForToken = async (userId?: string) => {
             });
 
             if (currentToken) {
-                console.log('FCM Token generated:', currentToken);
+                logger.debug('FCM Token generated:', currentToken);
 
                 // Save to Supabase if userId is provided
                 if (userId) {
@@ -50,7 +51,7 @@ export const requestForToken = async (userId?: string) => {
                             .eq('id', userId);
 
                         if (error) console.error("Failed to save FCM token to DB:", error);
-                        else console.log("FCM Token saved to profile");
+                        else logger.debug("FCM Token saved to profile");
                     } catch (dbError) {
                         console.error("Error saving token to Supabase:", dbError);
                     }

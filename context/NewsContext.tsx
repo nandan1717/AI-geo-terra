@@ -105,12 +105,20 @@ export const NewsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     }, [selectedVibe, isLoading]);
 
-    // Initial Load
+    // Initial Load & Auto-Refresh
     useEffect(() => {
-        // Fetch immediately on mount to populate the globe
+        // Fetch immediately on mount if empty
         if (gdeltCountRef.current === 0) {
             fetchNewsBatch(true);
         }
+
+        // Auto-refresh every 15 minutes
+        const interval = setInterval(() => {
+            console.log("Auto-refreshing global feed...");
+            fetchNewsBatch(true); // Reset and fetch fresh batch
+        }, 15 * 60 * 1000);
+
+        return () => clearInterval(interval);
     }, [fetchNewsBatch]);
 
     // Actually explicit vibe change effect is safer

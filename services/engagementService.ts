@@ -47,16 +47,6 @@ export const engagementService = {
                 await createNotification(userId, 'CONTENT_DROP', {
                     message: "It's been a while. Share your latest adventure.",
                 });
-            } else {
-                // Advanced Engagement
-                await triggerExplorationNudge(userId, state);
-
-                // Profile Stats Reminder (Random chance if they have history)
-                if (state.visitedLocations.length > 5 && Math.random() > 0.7) {
-                    await createNotification(userId, 'ENGAGEMENT_SAYS', {
-                        message: `You've explored ${state.visitedLocations.length} locations. Check your stats!`,
-                    });
-                }
             }
 
             // Update timestamp
@@ -107,51 +97,4 @@ async function triggerNudge(userId: string, type: 'COMPLETE_PROFILE' | 'FIRST_PO
     }, {
         actionPath: type === 'COMPLETE_PROFILE' ? '/profile' : '/'
     });
-
-    // We rely on the notificationService to handle the creation, 
-    // which in turn should trigger any listeners for UI updates.
-    // Real push notifications would be handled by a backend trigger on the 'notifications' table usually,
-    // or we can manually call a hypothetical sendPush here if we had a backend.
-
-    // For now, we simulate the "Push" effect by creating the in-app notification 
-    // which effectively "pings" the user when they open the app.
-}
-
-/**
- * AI-Driven Exploration Nudge
- * Uses DeepSeek to find unvisited places based on history
- */
-async function triggerExplorationNudge(userId: string, state: UserState) {
-    if (state.visitedLocations.length === 0) return;
-
-    // DeepSeek Prompt
-    const visitedStr = state.visitedLocations.slice(0, 5).join(", ");
-
-    // Generate Recommendation
-    const prompt = `
-        User has visited: ${visitedStr}.
-        Suggest 1 new, unvisited specific location (City or Landmark) they should explore next.
-        Must be geographically relevant or thematically similar.
-        Output JSON: { "location": "Name", "reason": "Short reason why" }
-    `;
-
-    try {
-        const responseJson = await queryDeepSeek([
-            { role: "system", content: "You are a travel recommender. Output strictly valid JSON." },
-            { role: "user", content: prompt }
-        ], true);
-
-        const data = JSON.parse(responseJson);
-
-        if (data.location) {
-            await createNotification(userId, 'APP_TIP', {
-                feature: `Mission: ${data.location}`,
-                systemMessage: `Based on your travels to ${visitedStr.split(',')[0]}, intelligence suggests exploring ${data.location}. ${data.reason}`
-            }, {
-                actionPath: `/?search=${encodeURIComponent(data.location)}`
-            });
-        }
-    } catch (e) {
-        console.error("AI Recommendation Failed:", e);
-    }
 }

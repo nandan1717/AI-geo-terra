@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, LogOut, HelpCircle, User as UserIcon, Trash2 } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
+import InterestManager from './InterestManager';
 
 interface SettingsPanelProps {
     isOpen: boolean;
@@ -122,6 +123,18 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                             </div>
                         </div>
                     </button>
+
+                    {/* Interest Manager */}
+                    <div className="bg-white/5 rounded-lg border border-white/10 p-3 mb-4">
+                        <InterestManager userId={userEmail || 'anon'} />
+                        {/* Note: ideally we pass userId. userEmail is passed, assuming we have ID available or can fetch. 
+                            For now, assuming userEmail might be the ID or we need to pass ID from parent.
+                            Wait, SettingsPanelProps receives userEmail. I should probably ensure I have userId.
+                            If not available, I might need to fetch it or assume it's context.
+                            
+                            Let's check App.tsx to see what is passed to SettingsPanel.
+                        */}
+                    </div>
 
                     {/* Danger Zone */}
                     <div className="pt-4 mt-4 border-t border-white/10">

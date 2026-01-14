@@ -4,6 +4,7 @@ import { LocationMarker, LocalPersona, ChatMessage, CrowdMember, ChatResponse } 
 import { queryDeepSeek } from "./deepseekService";
 
 import { PORTRAIT_DATA } from './portraitLibrary';
+import logger from './logger';
 
 const MODEL_NAME = "gemini-2.0-flash-exp";
 const IMAGEN_MODEL = "imagen-4.0-generate-001";
@@ -12,14 +13,15 @@ const IMAGEN_MODEL = "imagen-4.0-generate-001";
 const PORTRAIT_LIBRARY = PORTRAIT_DATA;
 
 // Initialize Gemini client for Tools (Search/Maps) and Images
-// Use Vite environment variable with fallback
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || process.env.API_KEY;
+// Note: For text generation, prefer using the ai-proxy Edge Function
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
 
-if (!apiKey) {
-  console.error("CRITICAL: Gemini API Key is missing. Please set VITE_GEMINI_API_KEY in your environment variables.");
+// Only warn in dev mode if no key - production should use proxy
+if (!apiKey && import.meta.env.DEV) {
+  logger.warn("Gemini API Key not found. Some features may use the ai-proxy Edge Function instead.");
 }
 
-const ai = new GoogleGenAI({ apiKey: apiKey || "" });
+const ai = new GoogleGenAI({ apiKey: apiKey || "placeholder" });
 
 // Helper to estimate local time based on longitude
 const getLocalTime = (longitude: number): string => {

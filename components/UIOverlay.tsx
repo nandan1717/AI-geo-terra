@@ -970,7 +970,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                                             <MapPin size={12} />
                                             <span>
                                                 {selectedMarker.region ? `${selectedMarker.region}, ` : ''}
-                                                {selectedMarker.country || 'Sector Locked'}
+                                                {selectedMarker.country || ''}
                                             </span>
                                         </div>
                                         <h2 className="text-2xl md:text-3xl font-bold text-white leading-tight shadow-black drop-shadow-md pr-8">

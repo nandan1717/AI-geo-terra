@@ -31,10 +31,27 @@ messaging.onBackgroundMessage((payload) => {
     console.log('[firebase-messaging-sw.js] Received background message ', payload);
     // Customize notification here
     const notificationTitle = payload.notification.title;
+
     const notificationOptions = {
         body: payload.notification.body,
-        icon: '/icon-192x192.png' // Ensure you have an icon in public folder or use a placeholder
+        icon: '/icon-192x192.png', // Ensure you have an icon in public folder or use a placeholder
+        image: payload.notification.image || payload.data.image, // Support Rich Media Image
+        tag: payload.data.eventId || 'general', // Grouping
+        renotify: true,
+        data: payload.data // Pass data for click handling
     };
+
+    // Add Actions if present
+    if (payload.data && payload.data.actions) {
+        try {
+            const actions = JSON.parse(payload.data.actions);
+            if (Array.isArray(actions)) {
+                notificationOptions.actions = actions;
+            }
+        } catch (e) {
+            console.error("Failed to parse actions:", e);
+        }
+    }
 
     self.registration.showNotification(notificationTitle, notificationOptions);
 });

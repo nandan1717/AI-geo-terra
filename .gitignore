@@ -31,3 +31,6 @@ yarn-error.log*
 
 # OS
 Thumbs.db
+
+# Allow specific IDE settings
+!.vscode/settings.json
