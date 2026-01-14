@@ -16,8 +16,14 @@ interface UserState {
 export const engagementService = {
     /**
      * Main Entry Point: Analyze user and trigger next best action
+     * DISABLED: Old notification system replaced by FCM push notifications
      */
     checkAndEngage: async (userId: string) => {
+        // DISABLED: We no longer use these old-style in-app engagement notifications
+        // FCM push notifications are now the primary engagement channel
+        return;
+
+        /* LEGACY CODE - Kept for reference
         // Frequency Cap: Check if we already engaged today
         const lastEngaged = localStorage.getItem(`last_engagement_${userId}`);
         const now = new Date();
@@ -55,6 +61,7 @@ export const engagementService = {
         } catch (error) {
             console.error("Engagement Check Failed:", error);
         }
+        */
     }
 };
 

@@ -297,6 +297,9 @@ const App: React.FC = () => {
                 personaService.ensureSmartPersonas(firstName, userLocation);
               });
 
+              // DISABLED: Old in-app WELCOME notification
+              // FCM push notifications are now the primary welcome channel
+              /*
               const hasSeenWelcome = localStorage.getItem('mortals_welcome_notification');
               if (!hasSeenWelcome) {
                 // Set flag IMMEDIATELY to prevent race conditions
@@ -306,6 +309,7 @@ const App: React.FC = () => {
                   userName: firstName
                 });
               }
+              */
             });
         }
 
