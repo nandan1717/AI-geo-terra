@@ -147,10 +147,43 @@ export const pexelsService = {
                     landscape: p.image_url,
                     tiny: p.image_url
                 },
-                alt: 'Pexels Photo'
+                alt: p.caption || 'Pexels Photo'
             }));
         } catch (error) {
             console.error("Failed to fetch Pexels photos from Supabase:", error);
+            return [];
+        }
+    },
+
+    /**
+     * Fetches curated photos with captions for StoryBar usage.
+     * Returns raw data including caption for direct story generation.
+     */
+    getCuratedPhotosForStories: async (perPage: number = 10): Promise<{
+        id: number;
+        url: string;
+        photographer: string;
+        image_url: string;
+        caption: string;
+    }[]> => {
+        try {
+            const { supabase } = await import('./supabaseClient');
+            const { data, error } = await supabase
+                .from('pexels_media')
+                .select('id, url, photographer, image_url, caption')
+                .eq('media_type', 'image')
+                .not('caption', 'is', null) // Only get items with captions
+                .order('created_at', { ascending: false })
+                .limit(perPage);
+
+            if (error) {
+                console.error("Supabase Pexels Stories Fetch Error:", error);
+                return [];
+            }
+
+            return data || [];
+        } catch (error) {
+            console.error("Failed to fetch Pexels photos for stories:", error);
             return [];
         }
     }

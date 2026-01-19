@@ -158,38 +158,44 @@ const App: React.FC = () => {
 
   const initialTutorialSteps: TutorialStep[] = [
     {
-      title: "Your World, Your Game",
-      content: "Create your profile and start your journey. The real world is your playground.",
+      title: "Welcome to Mortals",
+      content: "Experience the world in real-time. Connect, share, and discover what's happening right now.",
       position: "center"
     },
     {
       targetId: "search-bar",
-      title: "Explore & Discover",
-      content: "Navigate the globe. Search for cities, landmarks, or hidden gems to begin your adventure.",
+      title: "Search Anywhere",
+      content: "Find cities, hangouts, or trending events. See what the community is up to worldwide.",
       position: "bottom"
     },
     {
-      targetId: "profile-btn",
-      title: "Capture Reality",
-      content: "Take photos, tag locations, and post your real-world explorations to your profile.",
+      targetId: "story-bar-container",
+      title: "The Pulse",
+      content: "Watch live stories from locals and travelers. See the world through their eyes.",
+      position: "top"
+    },
+    {
+      targetId: "global-intel-btn",
+      title: "Live Map",
+      content: "Toggle live activity to see where people are gathering and what's trending.",
+      position: "bottom"
+    },
+    {
+      targetId: "create-post-btn",
+      title: "Share Your World",
+      content: "Post what's happening around you and let the world see it.",
       position: "left"
     },
     {
-      targetId: "profile-btn",
-      title: "Level Up",
-      content: "Earn XP and badges for every new place you visit. Watch your Exploration Bar grow!",
+      targetId: "step-3-profile",
+      title: "Your Identity",
+      content: "Curate your profile, track your footprint, and build your travel legacy.",
       position: "left"
     },
     {
-      targetId: "add-friends-btn",
-      title: "Connect & Hangout",
-      content: "Find others hanging out at your spots. Connect with people who share your favorite locations.",
-      position: "left"
-    },
-    {
-      targetId: "notifications-btn",
-      title: "Live World Events",
-      content: "Get real-time updates on events and places around you. Unlock unique badges for group hangouts!",
+      targetId: "step-4-add-friends",
+      title: "Community",
+      content: "Connect with locals and travelers sharing your vibe.",
       position: "left"
     }
   ];
@@ -369,7 +375,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     // Check if initial tutorial has been seen
-    const hasSeenInitial = localStorage.getItem('mortals_tutorial_initial_seen');
+    const hasSeenInitial = localStorage.getItem('mortals_tutorial_v2_seen');
     if (!hasSeenInitial && session) {
       setTimeout(() => setTutorialPhase('initial'), 1000);
     }
@@ -386,7 +392,7 @@ const App: React.FC = () => {
 
   const handleTutorialComplete = () => {
     if (tutorialPhase === 'initial') {
-      localStorage.setItem('mortals_tutorial_initial_seen', 'true');
+      localStorage.setItem('mortals_tutorial_v2_seen', 'true');
     } else if (tutorialPhase === 'post-search') {
       localStorage.setItem('mortals_tutorial_post_search_seen', 'true');
     }

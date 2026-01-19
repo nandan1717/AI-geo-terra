@@ -105,6 +105,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                 {/* 5. Post (Moved Up) */}
                 <button
+                    id="create-post-btn"
                     onClick={onPostClick}
                     className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-blue-400 transition-all active:scale-95 group relative animate-in zoom-in"
                     title="New Post"

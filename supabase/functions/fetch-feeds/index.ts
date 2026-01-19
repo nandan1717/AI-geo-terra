@@ -10,6 +10,7 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 const PEXELS_API_KEY = Deno.env.get('PEXELS_API_KEY') || '';
 const FCM_SERVER_KEY = Deno.env.get('FCM_SERVER_KEY') || '';
+const DEEPSEEK_API_KEY = Deno.env.get('DEEPSEEK_API_KEY') || '';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -217,10 +218,39 @@ const getAccessToken = async (serviceAccount: any) => {
     }
 }
 
+// Generate creative caption for Pexels photo using DeepSeek
+const generatePexelsCaption = async (photographer: string, altText: string): Promise<string> => {
+    if (!DEEPSEEK_API_KEY) return '';
+    try {
+        const prompt = `Generate a short, engaging Instagram-style caption (max 15 words) for a photo by ${photographer}. Photo description: ${altText || 'A beautiful curated photo'}. Be creative, poetic, and inspiring. Just return the caption, no quotes or extra text.`;
+
+        const resp = await fetch('https://api.deepseek.com/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: 'deepseek-chat',
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 50,
+                temperature: 0.8
+            })
+        });
+
+        if (!resp.ok) return '';
+        const data = await resp.json();
+        return data.choices?.[0]?.message?.content?.trim() || '';
+    } catch (e) {
+        console.error("DeepSeek Caption Error:", e);
+        return '';
+    }
+};
+
 const fetchPexels = async () => {
     if (!PEXELS_API_KEY) return [];
     try {
-        const resp = await fetch('https://api.pexels.com/v1/curated?per_page=40', {
+        const resp = await fetch('https://api.pexels.com/v1/curated?per_page=20', {
             headers: { Authorization: PEXELS_API_KEY }
         });
 
@@ -232,15 +262,23 @@ const fetchPexels = async () => {
         const data = await resp.json();
         if (!data.photos) return [];
 
-        const mediaItems = data.photos.map((p: any) => ({
-            id: p.id,
-            url: p.url,
-            photographer: p.photographer,
-            image_url: p.src.large2x || p.src.large, // Prefer higher res
-            video_url: null,
-            media_type: 'image',
-            created_at: new Date().toISOString()
-        }));
+        // Generate captions in batches to avoid rate limits
+        const mediaItems = [];
+        for (const p of data.photos.slice(0, 10)) { // Limit to 10 for caption generation
+            const caption = await generatePexelsCaption(p.photographer, p.alt || '');
+            mediaItems.push({
+                id: p.id,
+                url: p.url,
+                photographer: p.photographer,
+                image_url: p.src.large2x || p.src.large,
+                video_url: null,
+                media_type: 'image',
+                caption: caption,
+                created_at: new Date().toISOString()
+            });
+            // Small delay between API calls
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
 
         return mediaItems;
     } catch (e) {
@@ -408,14 +446,21 @@ Deno.serve(async (req) => {
 
         console.log(`Starting Feed Update. Custom Query: ${customQuery || 'None (Global Cron)'}`);
 
-        // 0. Cleanup Old Data (> 20 mins) - Run FIRST to ensure storage health & avoid timeout prevention
+        // 0. Cleanup Old Data - Run FIRST to ensure storage health & avoid timeout prevention
         if (!customQuery) {
             try {
                 console.log("Running Cleanup Phase...");
-                const cutoff = new Date(Date.now() - 20 * 60 * 1000).toISOString();
-                const { error: cleanupGdeltError } = await supabase.from('gdelt_events').delete().lt('created_at', cutoff);
+                // GDELT: 20 minutes cleanup
+                const gdeltCutoff = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+                const { error: cleanupGdeltError } = await supabase.from('gdelt_events').delete().lt('created_at', gdeltCutoff);
                 if (cleanupGdeltError) console.error("GDELT Cleanup Error:", cleanupGdeltError);
-                else console.log("Cleanup completed successfully.");
+                else console.log("GDELT Cleanup completed.");
+
+                // Pexels: 6 hours cleanup
+                const pexelsCutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+                const { error: cleanupPexelsError } = await supabase.from('pexels_media').delete().lt('created_at', pexelsCutoff);
+                if (cleanupPexelsError) console.error("Pexels Cleanup Error:", cleanupPexelsError);
+                else console.log("Pexels Cleanup completed (6 hour rotation).");
             } catch (cleanupErr) {
                 console.error("Cleanup phase failed:", cleanupErr);
             }

@@ -25,18 +25,21 @@ export const StoryBar: React.FC = () => {
         }
     }, [isReplying, isGenerating, activeStoryIdx]);
 
-    // Load / Init Stories (GDELT News Mode)
+    // Load / Init Stories (GDELT News + Pexels)
     useEffect(() => {
         const initStories = async () => {
             try {
                 // 1. Fetch Global News Events (using existing service)
                 const { fetchGlobalEvents } = await import('../services/gdeltService');
+                const { pexelsService } = await import('../services/pexelsService');
 
-                // Fetch plenty to filter for images
-                const newsEvents = await fetchGlobalEvents(50, 'Trending');
+                // Fetch GDELT news and Pexels photos in parallel
+                const [newsEvents, pexelsPhotos] = await Promise.all([
+                    fetchGlobalEvents(50, 'Trending'),
+                    pexelsService.getCuratedPhotosForStories(10)
+                ]);
 
-                // 2. Filter & Map to Stories
-                // Only use events with images
+                // 2. Map GDELT to Stories
                 const visualNews = newsEvents.filter(e => e.postImageUrl && e.postImageUrl.startsWith('http'));
 
                 const newsStories: Story[] = visualNews.map(event => {
@@ -54,30 +57,59 @@ export const StoryBar: React.FC = () => {
                         user: {
                             name: sourceName, // e.g. "CNN"
                             handle: event.country || "Global", // e.g. "US"
-                            avatarUrl: `https://ui-avatars.com/api/?name=${sourceName}&background=random&color=fff`, // Simple avatar based on source
+                            avatarUrl: `https://ui-avatars.com/api/?name=${sourceName}&background=random&color=fff`,
                             isAi: false
                         },
                         items: [{
                             id: event.id,
-                            type: 'image',
+                            type: 'image' as const,
                             url: event.postImageUrl!,
-                            duration: 8000, // Give more time for reading headlines
-                            caption: event.name, // The Headline
+                            duration: 8000,
+                            caption: event.name,
                             takenAt: event.publishedAt || new Date().toISOString()
                         }],
                         viewed: false,
-                        expiresAt: Date.now() + 24 * 60 * 60 * 1000 // 24h expiry
+                        expiresAt: Date.now() + 24 * 60 * 60 * 1000
                     };
                 });
 
-                // Deduplicate by Headline to avoid spam
-                const uniqueStories = Array.from(new Map(newsStories.map(s => [s.items[0].caption, s])).values());
+                // 3. Map Pexels to Stories
+                const pexelsStories: Story[] = pexelsPhotos.map(photo => ({
+                    id: `pexels-${photo.id}`,
+                    user: {
+                        name: photo.photographer,
+                        handle: "Pexels",
+                        avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(photo.photographer)}&background=7c3aed&color=fff`,
+                        isAi: true // Treat as AI for reply handling
+                    },
+                    items: [{
+                        id: `pexels-${photo.id}`,
+                        type: 'image' as const,
+                        url: photo.image_url,
+                        duration: 6000, // Shorter for aesthetic photos
+                        caption: photo.caption,
+                        takenAt: new Date().toISOString()
+                    }],
+                    viewed: false,
+                    expiresAt: Date.now() + 6 * 60 * 60 * 1000 // 6h expiry for Pexels
+                }));
+
+                // 4. Interleave stories for variety
+                const combinedStories: Story[] = [];
+                const maxLen = Math.max(newsStories.length, pexelsStories.length);
+                for (let i = 0; i < maxLen; i++) {
+                    if (i < newsStories.length) combinedStories.push(newsStories[i]);
+                    if (i < pexelsStories.length) combinedStories.push(pexelsStories[i]);
+                }
+
+                // 5. Deduplicate by caption to avoid spam
+                const uniqueStories = Array.from(new Map(combinedStories.map(s => [s.items[0].caption, s])).values());
 
                 setStories(uniqueStories);
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(uniqueStories));
 
             } catch (e) {
-                console.error("News Story load failed", e);
+                console.error("Story load failed", e);
             }
         };
 
@@ -280,7 +312,7 @@ export const StoryBar: React.FC = () => {
     return (
         <>
             {/* Bottom Story Tray - Glassmorphism Dock */}
-            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-40">
+            <div id="story-bar-container" className="absolute bottom-8 left-1/2 -translate-x-1/2 z-40">
                 <div className="flex gap-4 p-3 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-x-auto max-w-[90vw] scrollbar-hide">
                     {stories.map((story, i) => (
                         <button
@@ -295,16 +327,20 @@ export const StoryBar: React.FC = () => {
                                 } group-hover:scale-105`}>
                                 <div className="bg-black rounded-full overflow-hidden w-16 h-16 relative z-10 border-2 border-black">
                                     <img
-                                        src={story.user.avatarUrl}
-                                        alt={story.user.handle}
+                                        src={story.items[0].url}
+                                        alt="Story Preview"
                                         className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity"
                                     />
                                 </div>
 
-                                {/* Live Indicator Dot for unseen */}
-                                {!story.viewed && (
-                                    <div className="absolute 0 right-1 w-3.5 h-3.5 bg-amber-500 rounded-full border-2 border-black z-20 shadow-[0_0_10px_rgba(245,158,11,0.8)]" />
-                                )}
+                                {/* User Avatar Badge (Small) */}
+                                <div className="absolute bottom-0 right-0 z-20 w-6 h-6 rounded-full border border-black overflow-hidden shadow-md">
+                                    <img
+                                        src={story.user.avatarUrl}
+                                        alt={story.user.handle}
+                                        className="w-full h-full object-cover"
+                                    />
+                                </div>
                             </div>
 
                             <span className={`text-[10px] font-bold tracking-wider truncate w-16 text-center shadow-black drop-shadow-md ${story.viewed ? 'text-gray-500' : 'text-amber-100'}`}>

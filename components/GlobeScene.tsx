@@ -411,16 +411,30 @@ const GlobeScene = forwardRef<CameraControlRef, SceneProps>(({ markers, selected
               e.stopPropagation();
               onMarkerClick(m);
             }}
-            className="absolute flex items-center gap-2 px-3 py-1.5 rounded-full bg-gradient-to-r from-black/70 via-black/60 to-black/70 backdrop-blur-md border border-yellow-500/40 shadow-[0_0_20px_rgba(255,200,100,0.3)] transition-opacity duration-200 cursor-pointer group hover:bg-black/80 hover:border-yellow-400/60 hover:shadow-[0_0_25px_rgba(255,200,100,0.5)]"
+            className="absolute flex items-start gap-2 px-3 py-2 rounded-3xl bg-gradient-to-r from-black/80 via-black/70 to-black/80 backdrop-blur-md border border-yellow-500/40 shadow-[0_0_20px_rgba(255,200,100,0.3)] transition-opacity duration-200 cursor-pointer group hover:bg-black/90 hover:border-yellow-400/60 hover:shadow-[0_0_25px_rgba(255,200,100,0.5)]"
             style={{
               transform: 'translate(-50%, -50%)',
               opacity: 0,
-              maxWidth: '200px',
+              maxWidth: '280px',
               pointerEvents: 'auto'
             }}
           >
-            <div className="w-2 h-2 rounded-full bg-gradient-to-r from-yellow-400 to-orange-400 animate-pulse shrink-0 shadow-[0_0_8px_rgba(255,200,100,0.6)]"></div>
-            <span className="text-[10px] text-yellow-100 font-medium drop-shadow-md leading-tight">{m.name}</span>
+            <div className="w-2 h-2 mt-1 rounded-full bg-gradient-to-r from-yellow-400 to-orange-400 animate-pulse shrink-0 shadow-[0_0_8px_rgba(255,200,100,0.6)]"></div>
+            {/* Image Thumbnail if available */}
+            {m.postImageUrl && (
+              <div className="w-10 h-10 rounded-md overflow-hidden shrink-0 border border-yellow-500/30 shadow-md">
+                <img
+                  src={m.postImageUrl}
+                  alt=""
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                />
+              </div>
+            )}
+            <div className="flex flex-col min-w-0 flex-1">
+              <span className="text-[11px] text-yellow-100 font-medium drop-shadow-md leading-snug">{m.name}</span>
+              {m.country && <span className="text-[8px] text-yellow-200/70 drop-shadow-sm">{m.country}</span>}
+            </div>
           </div>
         ))}
       </div>
