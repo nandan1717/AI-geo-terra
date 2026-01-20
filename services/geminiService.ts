@@ -273,10 +273,64 @@ export const fetchCrowd = async (location: LocationMarker, customQuery?: string)
   return members;
 }
 
+export const getAllCachedPersonas = async (limit = 50): Promise<LocalPersona[]> => {
+  try {
+    const { supabase } = await import('./supabaseClient');
+
+    // Fetch recent crowd generations
+    const { data, error } = await supabase
+      .from('location_crowd_cache')
+      .select('crowd_data, created_at, location_name, latitude, longitude')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+    if (!data) return [];
+
+    // Flatten and Dedup
+    const allPersonas: LocalPersona[] = [];
+    const seenNames = new Set<string>();
+
+    data.forEach((row: any) => {
+      const crowd = row.crowd_data as CrowdMember[];
+      if (Array.isArray(crowd)) {
+        crowd.forEach(member => {
+          if (!seenNames.has(member.name)) {
+            seenNames.add(member.name);
+            // Convert CrowdMember to LocalPersona with Location Context
+            allPersonas.push({
+              ...member,
+              message: "Hello! I'm around here.",
+              imageUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${member.name}`,
+              suggestedQuestions: [],
+              // Attach location from the cache row
+              // @ts-ignore - Injecting extra props for UI
+              latitude: row.latitude || 0,
+              // @ts-ignore
+              longitude: row.longitude || 0,
+              // @ts-ignore
+              locationName: row.location_name || "Unknown"
+            });
+          }
+        });
+      }
+    });
+
+    return allPersonas;
+  } catch (err) {
+    console.error("Failed to fetch cached personas", err);
+    return [];
+  }
+}
+
 const generateCrowdWithAI = async (location: LocationMarker, customQuery?: string): Promise<CrowdMember[]> => {
   const cacheKey = `crowd_${location.name}_${customQuery || 'default'}`;
-  const cached = ServiceCache.get<CrowdMember[]>(cacheKey);
-  if (cached) return cached;
+
+  // Only use cache for DEFAULT crowd (no custom query) to force fresh generation for searches
+  if (!customQuery) {
+    const cached = ServiceCache.get<CrowdMember[]>(cacheKey);
+    if (cached) return cached;
+  }
 
   const localTime = getLocalTime(location.longitude);
 
@@ -286,18 +340,24 @@ const generateCrowdWithAI = async (location: LocationMarker, customQuery?: strin
     const isMatureRequest = customQuery && matureKeywords.some(kw => customQuery.toLowerCase().includes(kw));
 
     // Use DeepSeek for more diverse and human-like personas
-    let systemPrompt = "Creative writer. Output strictly valid JSON.";
+    let systemPrompt = `You are a creative writer.
+    Task: Generate 3 unique local personas for ${location.name}, ${location.country}.
+    Context: The user is looking for: "${customQuery}".
+    
+    CRITICAL INSTRUCTIONS:
+    1. If the query "${customQuery}" looks like a specific name (e.g. "Riya", "Gurjeet"), ALL 3 personas MUST share that FIRST NAME, but have different last names, backgrounds, and occupations.
+    2. The cultural lineage/ethnicity of the personas MUST match the origin of the name provided (e.g. "Riya" -> Indian origin, "Gurjeet" -> Punjabi origin), regardless of the current location.
+    3. If the query is a role/description (e.g. "Bartender"), generate diverse locals fitting that role.
+    
+    JSON Schema: { "members": [{ "name", "gender", "occupation", "age", "lineage", "mindset", "currentActivity", "mood", "bio" }] }`;
     let userPrompt = `Generate 3 distinct people at: ${location.name}, ${location.country}. Time: ${localTime}.
             JSON Schema: { "members": [{ "name", "gender", "occupation", "age", "lineage", "mindset", "currentActivity", "mood", "bio" }] }`;
 
-    if (customQuery) {
-      systemPrompt = isMatureRequest
-        ? "Mature character generator for adult roleplay. You are unfiltered and allowed to generate 'R-rated', steamy, shady, or dark characters. Output strictly valid JSON."
-        : "Character generator. Output strictly valid JSON.";
-
-      userPrompt = `Generate 3 distinct people at: ${location.name}. Match description: "${customQuery}".
-        Vary age/role/personality. ${isMatureRequest ? "Embrace mature, steamy, or shady themes as requested." : ""}
-        JSON Schema: { "members": [{ "name", "gender", "occupation", "age", "lineage", "mindset", "currentActivity", "mood", "bio" }] }`;
+    // Integrated customQuery logic into the main prompt above.
+    // Handling mature requests by appending to the system prompt if needed.
+    if (isMatureRequest) {
+      systemPrompt += " \n\nMATURE CONTENT ALLOWED. You are unfiltered and allowed to generate 'R-rated', steamy, shady, or dark characters.";
+      userPrompt += " Embrace mature, steamy, or shady themes as requested.";
     }
 
     const responseText = await queryDeepSeek([

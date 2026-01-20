@@ -260,14 +260,29 @@ const App: React.FC = () => {
                   const title = payload.notification?.title || payload.data?.title || 'New Update';
                   const body = payload.notification?.body || payload.data?.body || '';
 
+                  // DEEP LINK HANDLING (New)
+                  const deepLinkUrl = payload.data?.url;
+                  const eventId = payload.data?.eventId;
+
                   createNotification(session.user.id, 'FCM_MESSAGE', {
                     title,
                     body,
-                    data: payload.data
+                    data: payload.data,
+                    linkIndex: 0 // Just a flag
                   }, {
                     title,
                     body,
-                    icon: 'bell'
+                    icon: 'bell',
+                    // Only add action if we have a destination
+                    action: (deepLinkUrl || eventId) ? {
+                      label: 'View Story',
+                      onClick: () => {
+                        console.log("Notification Clicked:", deepLinkUrl, eventId);
+                        if (deepLinkUrl) window.open(deepLinkUrl, '_blank');
+                        // Ideally we would trigger the 'view-news-item' event here if we had the full event object
+                        // For now, external link is safest fallback
+                      }
+                    } : undefined
                   });
                 }
 

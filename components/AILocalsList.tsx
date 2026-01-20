@@ -16,9 +16,11 @@ interface AILocalsListProps {
     onClose: () => void;
     onChat: (local: AILocal) => void;
     onDelete?: (local: AILocal) => void;
+    onSearch?: (query: string) => void;
+    isSearching?: boolean;
 }
 
-const AILocalsList: React.FC<AILocalsListProps> = ({ locals, onClose, onChat, onDelete }) => (
+const AILocalsList: React.FC<AILocalsListProps> = ({ locals, onClose, onChat, onDelete, onSearch, isSearching }) => (
     <div className="flex flex-col h-full bg-[#0a0a0a]">
         <div className="flex items-center gap-2 p-4 border-b border-white/10 shrink-0">
             <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full text-white transition-colors">
@@ -26,6 +28,9 @@ const AILocalsList: React.FC<AILocalsListProps> = ({ locals, onClose, onChat, on
             </button>
             <h2 className="text-lg font-bold text-white">My AI Connections</h2>
         </div>
+
+        {/* Search / Generate Input Removed - Moved to Find Connections */}
+
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
             {locals.map((local, idx) => (
                 <div key={idx} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5 hover:bg-white/10 transition-colors group">

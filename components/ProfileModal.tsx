@@ -52,8 +52,9 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profile, aiLocalsCount, i
     const progress = Math.min(100, Math.max(0, ((cwXp - prevLevelXp) / (nextLevelXp - prevLevelXp)) * 100));
 
     // Get Data
-    const profileData = recommendationService.getProfile();
-    const [followingTopics, setFollowingTopics] = useState<string[]>(profileData.followedTopics || []);
+    // Only fetch own profile data if we are viewing our own profile
+    const ownProfileData = isOwnProfile ? recommendationService.getProfile() : null;
+    const [followingTopics, setFollowingTopics] = useState<string[]>(ownProfileData?.followedTopics || []);
     const followingCount = followingTopics.length;
     // Force re-render periodically for timers? For now just on mount/update is fine.
 
@@ -61,19 +62,22 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profile, aiLocalsCount, i
     const getListData = () => {
         if (activeList === 'Countries') return profile.visited_countries || [];
         if (activeList === 'Continents') return profile.visited_continents || [];
-        if (activeList === 'Following') return followingTopics;
+        if (activeList === 'Following' && isOwnProfile) return followingTopics;
         return [];
     };
 
     const handleUnfollow = async (topic: string) => {
+        if (!isOwnProfile) return;
         await recommendationService.unfollow(topic);
         setFollowingTopics(recommendationService.getProfile().followedTopics || []);
     };
 
     // Helper: Calculate Progress & Time Left
     const getTopicStatus = (topic: string) => {
+        if (!isOwnProfile || !ownProfileData) return { progress: 100, label: '', isForever: true };
+
         const normalized = topic.toLowerCase();
-        const exp = profileData.topicExpirations?.[normalized];
+        const exp = ownProfileData.topicExpirations?.[normalized];
         // console.log('Topic Status Check:', { topic, normalized, exp, allExps: profileData.topicExpirations });
 
         if (!exp) return { progress: 100, label: 'Forever', isForever: true };
@@ -966,9 +970,11 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, targetUser
                                             <span className="w-1 h-4 bg-blue-500 rounded-full"></span>
                                             Your World
                                         </h3>
-                                        <button onClick={() => setIsCreatingPost(!isCreatingPost)} className="text-blue-400 text-xs hover:text-blue-300 font-mono border border-blue-500/30 px-3 py-1 rounded-full hover:bg-blue-500/10 transition-colors">
-                                            {isCreatingPost ? 'CANCEL' : '+ NEW EXPLORATION'}
-                                        </button>
+                                        {isOwnProfile && (
+                                            <button onClick={() => setIsCreatingPost(!isCreatingPost)} className="text-blue-400 text-xs hover:text-blue-300 font-mono border border-blue-500/30 px-3 py-1 rounded-full hover:bg-blue-500/10 transition-colors">
+                                                {isCreatingPost ? 'CANCEL' : '+ NEW EXPLORATION'}
+                                            </button>
+                                        )}
                                     </div>
 
                                     {isCreatingPost && (

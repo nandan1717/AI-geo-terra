@@ -107,7 +107,7 @@ const fetchGdeltForQuery = async (customQuery: string | null, vibe: string) => {
 
     // Add Timeout to prevent hanging
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
     try {
         const resp = await fetch(`https://api.gdeltproject.org/api/v2/geo/geo?query=${encodeURIComponent(query)}&mode=PointData&format=geojson&timespan=24h&maxrows=${limit}&_t=${uniqueReqId}`, {
@@ -221,6 +221,11 @@ const getAccessToken = async (serviceAccount: any) => {
 // Generate creative caption for Pexels photo using DeepSeek
 const generatePexelsCaption = async (photographer: string, altText: string): Promise<string> => {
     if (!DEEPSEEK_API_KEY) return '';
+
+    // 5s timeout for AI calls
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
     try {
         const prompt = `Generate a short, engaging Instagram-style caption (max 15 words) for a photo by ${photographer}. Photo description: ${altText || 'A beautiful curated photo'}. Be creative, poetic, and inspiring. Just return the caption, no quotes or extra text.`;
 
@@ -235,8 +240,10 @@ const generatePexelsCaption = async (photographer: string, altText: string): Pro
                 messages: [{ role: 'user', content: prompt }],
                 max_tokens: 50,
                 temperature: 0.8
-            })
+            }),
+            signal: controller.signal
         });
+        clearTimeout(timeoutId);
 
         if (!resp.ok) return '';
         const data = await resp.json();
@@ -298,7 +305,6 @@ const sendFcmNotification = async (payload: any) => {
 
     try {
         let cleanedKey = FCM_SERVER_KEY.trim();
-        // Handle potentially quoted env vars (e.g. "{"type":...}")
         if ((cleanedKey.startsWith('"') && cleanedKey.endsWith('"')) || (cleanedKey.startsWith("'") && cleanedKey.endsWith("'"))) {
             cleanedKey = cleanedKey.slice(1, -1);
         }
@@ -309,7 +315,6 @@ const sendFcmNotification = async (payload: any) => {
                 isServiceAccount = true;
             } catch (parseError) {
                 console.error("Failed to parse FCM_SERVER_KEY as JSON:", parseError);
-                // IF it looks like JSON but matches nothing, don't try legacy, it will fail headers.
                 return;
             }
         }
@@ -329,66 +334,63 @@ const sendFcmNotification = async (payload: any) => {
             const projectId = serviceAccount.project_id;
             const url = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
 
-            // Map Legacy Payload to v1 Message
-            // Legacy uses: to (topic or token), notification, data
-            // v1 uses: message: { topic/token, notification, data }
-
-            let message: any = {
+            let messageTemplate: any = {
                 notification: payload.notification,
-                data: payload.data
+                data: payload.data,
+                android: payload.android,
+                apns: payload.apns,
+                webpush: payload.webpush
             };
 
-            if (payload.to) {
+            if (payload.to && !payload.registration_ids) {
+                // Single Send
+                let message: any = { ...messageTemplate };
                 if (payload.to.startsWith('/topics/')) {
                     message.topic = payload.to.replace('/topics/', '');
                 } else {
                     message.token = payload.to;
                 }
-            } else if (payload.registration_ids) {
-                // v1 does not support multicast (registration_ids). 
-                // We must loop. Ideally call this function in a loop from caller, but for now we handle it here if possible.
-                // Or better: The caller (Granular Topic) already batches. The caller sends `registration_ids`.
-                // We MUST iterate here because v1 is single send.
-                // NOTE: Batch sending in v1 is "sendAll" but likely better to just simple loop for now or warn.
-                // Converting `registration_ids` to individual calls:
-                console.warn("FCM v1 does not support 'registration_ids' (multicast). Sending sequentially.");
 
-                const tokens = payload.registration_ids;
-                for (const token of tokens) {
-                    const singleMessage = { ...message, token: token };
-                    // Recursively call send or just fetch here?
-                    // Let's just fetch to avoid infinite recursion complexity with modified payload
-                    await fetch(url, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({ message: singleMessage })
-                    });
+                const fcmResp = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ message })
+                });
+
+                if (!fcmResp.ok) {
+                    console.error("FCM v1 Send Failed:", await fcmResp.text());
+                } else {
+                    console.log("FCM v1 Sent Successfully:", message.topic || message.token);
                 }
-                console.log(`Sent ${tokens.length} messages sequentially via FCM v1`);
-                return;
-            }
 
-            const fcmResp = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ message })
-            });
+            } else if (payload.registration_ids) {
+                // Batch Send via Loop (Parallel Batches)
+                console.log(`FCM v1 Batch: Sending to ${payload.registration_ids.length} tokens...`);
+                const tokens = payload.registration_ids;
+                const BATCH_SIZE = 50; // Parallel requests
 
-            if (!fcmResp.ok) {
-                console.error("FCM v1 Send Failed:", await fcmResp.text());
-            } else {
-                console.log("FCM v1 Sent Successfully:", message.topic || message.token);
+                for (let i = 0; i < tokens.length; i += BATCH_SIZE) {
+                    const chunk = tokens.slice(i, i + BATCH_SIZE);
+                    await Promise.allSettled(chunk.map(async (token: string) => {
+                        const singleMessage = { ...messageTemplate, token: token };
+                        await fetch(url, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${accessToken}`,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ message: singleMessage })
+                        }).catch(e => console.error(`Failed to send to token ${token.slice(0, 10)}...`, e));
+                    }));
+                }
+                console.log(`[FCM] Batch dispatch completed.`);
             }
 
         } else {
             // Legacy API Fallback
-            // Safety Check: If parse failed but it LOOKS like a Service Account, do NOT use Legacy
             if (FCM_SERVER_KEY.trim().startsWith('{') || FCM_SERVER_KEY.trim().includes('"type": "service_account"')) {
                 console.error("FCM_SERVER_KEY indicates Service Account but parsing failed. Skipping Legacy Fallback.");
                 return;
@@ -403,13 +405,274 @@ const sendFcmNotification = async (payload: any) => {
             if (!fcmResp.ok) {
                 console.error("FCM Legacy Send Failed:", await fcmResp.text());
             } else {
-                console.log("FCM Legacy Sent Successfully:", payload.to);
+                console.log("FCM Legacy Sent Successfully.");
             }
         }
     } catch (e) {
         console.error("FCM Dispatch Error:", e);
     }
 };
+
+// --- BACKGROUND PROCESSOR ---
+async function processFeeds(customQuery: string | null) {
+    console.log(`[BACKGROUND] Starting processing for query: ${customQuery || 'GLOBAL'}`);
+
+    // In-memory deduplication set for notifications
+    const notifiedEventIds = new Set<string>();
+    // Also track source URLs to be safe against same story with different IDs
+    const processedStoryUrls = new Set<string>();
+
+    // 0. Cleanup Old Data
+    if (!customQuery) {
+        try {
+            console.log("Running Cleanup Phase...");
+            const gdeltCutoff = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+            await supabase.from('gdelt_events').delete().lt('created_at', gdeltCutoff);
+
+            const pexelsCutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+            await supabase.from('pexels_media').delete().lt('created_at', pexelsCutoff);
+        } catch (cleanupErr) {
+            console.error("Cleanup phase failed:", cleanupErr);
+        }
+    }
+
+    // 1. Fetch Pexels Data
+    if (!customQuery) {
+        const pexelsItems = await fetchPexels();
+        if (pexelsItems.length > 0) {
+            const { error: pexelsError } = await supabase
+                .from('pexels_media')
+                .upsert(pexelsItems, { onConflict: 'id' });
+            if (pexelsError) console.error("Pexels Upsert Error:", pexelsError);
+        }
+    }
+
+    // 2. Fetch GDELT Data
+    let allGdeltEvents: any[] = [];
+
+    try {
+        if (customQuery) {
+            const events = await fetchGdeltForQuery(customQuery, 'User Interest');
+            allGdeltEvents = [...events];
+        } else {
+            const vibes = ['Trending', 'High Energy', 'Chill', 'Inspiration', 'Intense'];
+            const gdeltPromises = vibes.map(v => fetchGdeltForQuery(null, v));
+
+            // Personalization
+            let topicEvents: any[] = [];
+            try {
+                const { data: profiles } = await supabase
+                    .from('app_profiles_v2')
+                    .select('followed_topics')
+                    .not('followed_topics', 'is', null);
+
+                if (profiles) {
+                    const allTopics = new Set<string>();
+                    profiles.forEach((p: any) => {
+                        if (Array.isArray(p.followed_topics)) {
+                            p.followed_topics.forEach((t: string) => allTopics.add(t.toLowerCase().trim()));
+                        }
+                    });
+
+                    const uniqueTopics = Array.from(allTopics).slice(0, 30);
+                    console.log(`[PERSONALIZATION] Processing ${uniqueTopics.length} topics...`);
+
+                    if (uniqueTopics.length > 0) {
+                        const BATCH_SIZE = 5;
+                        const results: any[] = [];
+
+                        for (let i = 0; i < uniqueTopics.length; i += BATCH_SIZE) {
+                            const batch = uniqueTopics.slice(i, i + BATCH_SIZE);
+
+                            // Use allSettled so one failure doesn't break the batch
+                            const batchResults = await Promise.allSettled(
+                                batch.map(topic => fetchGdeltForQuery(`"${topic}"`, 'User Interest'))
+                            );
+
+                            batchResults.forEach(res => {
+                                if (res.status === 'fulfilled') {
+                                    results.push(...res.value);
+                                }
+                            });
+
+                            // Small delay
+                            if (i + BATCH_SIZE < uniqueTopics.length) {
+                                await new Promise(resolve => setTimeout(resolve, 500));
+                            }
+                        }
+                        topicEvents = results;
+                    }
+                }
+            } catch (pErr) {
+                console.error("Personalization Fetch Error:", pErr);
+            }
+
+            const gdeltResults = await Promise.all(gdeltPromises); // These return empty arrays on fail, safe to await all
+            allGdeltEvents = [...gdeltResults.flat(), ...topicEvents];
+        }
+    } catch (gdeltErr) {
+        console.error("GDELT Fetching phase failed:", gdeltErr);
+    }
+
+    // 3. Upsert
+    let uniqueEvents: any[] = [];
+    if (allGdeltEvents.length > 0) {
+        uniqueEvents = Array.from(
+            new Map(allGdeltEvents.map((item) => [item.id, item])).values()
+        );
+
+        const { error: gdeltError } = await supabase
+            .from('gdelt_events')
+            .upsert(uniqueEvents, { onConflict: 'id' });
+
+        if (gdeltError) {
+            console.error("GDELT Upsert Error:", gdeltError);
+        } else {
+            // NOTIFICATION LOGIC (Only for Global Cron)
+            if (!customQuery) {
+                const highValueEvents = uniqueEvents.filter((e: any) =>
+                    (e.vibe === 'Intense' || e.vibe === 'Inspiration' || e.vibe === 'Trending') &&
+                    e.title.length > 10 &&
+                    e.image_url && e.image_url.startsWith('http')
+                );
+
+                // A. Top Story Broadcast
+                const topEvent = highValueEvents[0];
+                if (topEvent) {
+                    const topic = `news_${topEvent.vibe.toLowerCase().replace(' ', '_')}`;
+                    const hookTitle = generateHook(topEvent.title, topEvent.vibe);
+                    console.log(`[FCM] Broadcasting Top Story: ${topEvent.title}`);
+
+                    // Add to dedup sets
+                    if (topEvent.id) notifiedEventIds.add(topEvent.id);
+                    if (topEvent.source_url) processedStoryUrls.add(topEvent.source_url);
+
+                    await sendFcmNotification({
+                        "to": `/topics/${topic}`,
+                        "notification": {
+                            "title": hookTitle,
+                            "body": "Tap to read full story.",
+                            "image": topEvent.image_url
+                        },
+                        "data": {
+                            "eventId": topEvent.id,
+                            "type": "NEWS_ALERT",
+                            "actions": JSON.stringify([{ title: 'Read Summary', action: 'read_summary' }])
+                        }
+                    });
+                }
+
+                // B. Immediate Interest Matching (Personalized)
+                try {
+                    // Filter out events we already broadcasted
+                    const availableEvents = highValueEvents
+                        .filter(e => !processedStoryUrls.has(e.source_url) && !notifiedEventIds.has(e.id));
+
+                    if (availableEvents.length > 0) {
+                        const topicToEventsMap = new Map<string, any[]>();
+                        const allCandidateKeywords = new Set<string>();
+
+                        // 1. Map Keywords -> Events
+                        const MAX_EVENTS_TO_CHECK = 10;
+                        for (const event of availableEvents.slice(0, MAX_EVENTS_TO_CHECK)) {
+                            const rawKeywords = event.title.split(' ').filter((w: string) => w.length > 5 && /^[A-Z]/.test(w));
+                            if (event.country && event.country !== 'Global') rawKeywords.push(event.country);
+
+                            const uniqueEventKeywords = [...new Set(rawKeywords)];
+                            for (const kw of uniqueEventKeywords) {
+                                const topicKey = (kw as string).toLowerCase().trim();
+                                if (topicKey.length > 3) {
+                                    allCandidateKeywords.add(topicKey);
+                                    if (!topicToEventsMap.has(topicKey)) topicToEventsMap.set(topicKey, []);
+                                    topicToEventsMap.get(topicKey)?.push(event);
+                                }
+                            }
+                        }
+
+                        const keywordArray = Array.from(allCandidateKeywords);
+                        if (keywordArray.length > 0) {
+                            // 2. Find Interested Users with Cooldown Check
+                            // We explicitly check last_notified_at is older than 1 hour (or null)
+                            const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+                            const { data: profiles, error: matchError } = await supabase
+                                .from('app_profiles_v2')
+                                .select('id, fcm_token, followed_topics, last_notified_at')
+                                .overlaps('followed_topics', keywordArray)
+                                .not('fcm_token', 'is', null)
+                                .or(`last_notified_at.is.null,last_notified_at.lt.${oneHourAgo}`);
+
+                            if (matchError) {
+                                console.error("Error matching users for interests:", matchError);
+                            } else if (profiles && profiles.length > 0) {
+                                const userNotifications = new Map<string, { event: any, userId: string }>(); // One event per user
+
+                                for (const profile of profiles) {
+                                    const userToken = profile.fcm_token;
+                                    const userId = profile.id;
+                                    const userTopics = profile.followed_topics || [];
+                                    const interestingTopics = userTopics.filter((t: string) => allCandidateKeywords.has(t));
+
+                                    for (const topic of interestingTopics) {
+                                        const events = topicToEventsMap.get(topic);
+                                        if (events && events.length > 0) {
+                                            // Pick first matching event
+                                            if (!userNotifications.has(userToken)) {
+                                                const candidateEvent = events[0];
+                                                // Double check processed URL
+                                                if (!processedStoryUrls.has(candidateEvent.source_url)) {
+                                                    userNotifications.set(userToken, { event: candidateEvent, userId });
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                console.log(`[FCM] Dispatching ${userNotifications.size} personalized alerts (Interest Match).`);
+
+                                const userIdsToUpdate = new Set<string>();
+
+                                // 3. Batch Send & Update State
+                                for (const [token, { event, userId }] of userNotifications) {
+                                    await sendFcmNotification({
+                                        "to": token,
+                                        "notification": {
+                                            "title": `News for you`,
+                                            "body": event.title,
+                                            "image": event.image_url
+                                        },
+                                        "data": {
+                                            "eventId": event.id,
+                                            "type": "NEWS_ALERT",
+                                            "url": event.source_url,
+                                            "isTopicAlert": "true"
+                                        }
+                                    });
+                                    userIdsToUpdate.add(userId);
+                                }
+
+                                // 4. Update last_notified_at
+                                if (userIdsToUpdate.size > 0) {
+                                    const { error: updateError } = await supabase
+                                        .from('app_profiles_v2')
+                                        .update({ last_notified_at: new Date().toISOString() })
+                                        .in('id', Array.from(userIdsToUpdate));
+
+                                    if (updateError) console.error("Failed to update last_notified_at:", updateError);
+                                }
+                            }
+                        }
+                    }
+
+                } catch (notifErr) {
+                    console.error("Error processing personalized notifications:", notifErr);
+                }
+            }
+        }
+    }
+
+    console.log(`[STATUS] Background tasks completed.`);
+}
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || 'https://geo-terra.vercel.app',
@@ -426,367 +689,39 @@ Deno.serve(async (req) => {
 
     try {
         if (!PEXELS_API_KEY) {
-            console.error("Missing PEXELS_API_KEY environment variable");
             throw new Error("Server Misconfiguration: Missing API Keys");
         }
 
-        // Parse Request Body (if any)
         let customQuery: string | null = null;
         try {
-            // Only attempt to parse body if method is POST and body exists
-            if (req.method === 'POST' && req.body) {
-                const payload = await req.json();
-                customQuery = payload.query;
+            if (req.method === 'POST') {
+                // Catch empty bodies
+                const text = await req.text();
+                if (text) {
+                    const payload = JSON.parse(text);
+                    customQuery = payload.query;
+                }
             }
         } catch (e) {
-            console.warn("Failed to parse request body, proceeding without custom query:", e);
-            // Ignore JSON parse error (likely empty body from CRON or GET request)
+            console.warn("Body parse warning:", e);
         }
 
+        console.log(`[CRON] Triggered at ${new Date().toISOString()}`);
 
-        console.log(`Starting Feed Update. Custom Query: ${customQuery || 'None (Global Cron)'}`);
-
-        // 0. Cleanup Old Data - Run FIRST to ensure storage health & avoid timeout prevention
-        if (!customQuery) {
-            try {
-                console.log("Running Cleanup Phase...");
-                // GDELT: 20 minutes cleanup
-                const gdeltCutoff = new Date(Date.now() - 20 * 60 * 1000).toISOString();
-                const { error: cleanupGdeltError } = await supabase.from('gdelt_events').delete().lt('created_at', gdeltCutoff);
-                if (cleanupGdeltError) console.error("GDELT Cleanup Error:", cleanupGdeltError);
-                else console.log("GDELT Cleanup completed.");
-
-                // Pexels: 6 hours cleanup
-                const pexelsCutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
-                const { error: cleanupPexelsError } = await supabase.from('pexels_media').delete().lt('created_at', pexelsCutoff);
-                if (cleanupPexelsError) console.error("Pexels Cleanup Error:", cleanupPexelsError);
-                else console.log("Pexels Cleanup completed (6 hour rotation).");
-            } catch (cleanupErr) {
-                console.error("Cleanup phase failed:", cleanupErr);
-            }
-        }
-
-        // 1. Fetch Pexels Data (Restored Logic)
-        if (!customQuery) {
-            const pexelsItems = await fetchPexels();
-            if (pexelsItems.length > 0) {
-                const { error: pexelsError } = await supabase
-                    .from('pexels_media')
-                    .upsert(pexelsItems, { onConflict: 'id' });
-
-                if (pexelsError) console.error("Pexels Upsert Error:", pexelsError);
-                else console.log(`Upserted ${pexelsItems.length} Pexels items.`);
-            }
-        }
-
-        // 2. Fetch GDELT Data
-        let allGdeltEvents: any[] = [];
-
-        try {
-            if (customQuery) {
-                // Targeted User Fetch
-                // Use a simpler 'Trending' vibe for custom queries to ensure we get results
-                const events = await fetchGdeltForQuery(customQuery, 'User Interest');
-                allGdeltEvents = [...events];
-            } else {
-                // Standard Global Cron Fetch
-                const vibes = ['Trending', 'High Energy', 'Chill', 'Inspiration', 'Intense'];
-                const gdeltPromises = vibes.map(v => fetchGdeltForQuery(null, v).catch(err => {
-                    console.error(`Failed to fetch GDELT for vibe ${v}:`, err);
-                    return [];
-                }));
-
-                // --- PERSONALIZATION ---
-                // Fetch unique topics followed by ANY user to populate the shared pool
-                let topicEvents: any[] = [];
-                try {
-                    const { data: profiles, error: profileError } = await supabase
-                        .from('app_profiles_v2')
-                        .select('followed_topics')
-                        .not('followed_topics', 'is', null);
-
-                    if (!profileError && profiles) {
-                        // Flatten and Unique
-                        const allTopics = new Set<string>();
-                        profiles.forEach((p: any) => {
-                            if (Array.isArray(p.followed_topics)) {
-                                p.followed_topics.forEach((t: string) => allTopics.add(t.toLowerCase().trim()));
-                            }
-                        });
-
-                        // Personalization - Batched Fetching to prevent Timeouts
-                        const uniqueTopics = Array.from(allTopics).slice(0, 30); // Limit to 30 topics for now
-                        console.log(`Found ${uniqueTopics.length} unique user topics to fetch:`, uniqueTopics);
-
-                        if (uniqueTopics.length > 0) {
-                            const BATCH_SIZE = 5;
-                            const results: any[] = [];
-
-                            for (let i = 0; i < uniqueTopics.length; i += BATCH_SIZE) {
-                                const batch = uniqueTopics.slice(i, i + BATCH_SIZE);
-                                console.log(`Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(uniqueTopics.length / BATCH_SIZE)}:`, batch);
-
-                                const batchPromises = batch.map(topic =>
-                                    fetchGdeltForQuery(`"${topic}"`, 'User Interest')
-                                        .catch(e => {
-                                            console.error(`Error fetching topic "${topic}":`, e);
-                                            return [];
-                                        })
-                                );
-
-                                // Wait for this batch to finish before starting the next
-                                const batchResults = await Promise.all(batchPromises);
-                                results.push(...batchResults.flat());
-
-                                // Small delay to be nice to the API
-                                if (i + BATCH_SIZE < uniqueTopics.length) {
-                                    await new Promise(resolve => setTimeout(resolve, 500));
-                                }
-                            }
-
-                            topicEvents = results;
-                            console.log(`Fetched ${topicEvents.length} personalized events total.`);
-                        }
-                    }
-                } catch (pErr) {
-                    console.error("Personalization Fetch Error:", pErr);
-                }
-
-                const gdeltResults = await Promise.all(gdeltPromises);
-                allGdeltEvents = [...gdeltResults.flat(), ...topicEvents];
-            }
-        } catch (gdeltErr) {
-            console.error("CRITICAL: GDELT Fetching phase failed entirely:", gdeltErr);
-        }
-
-        // 3. Upsert to Supabase
-        let uniqueEvents: any[] = [];
-        if (allGdeltEvents.length > 0) {
-            uniqueEvents = Array.from(
-                new Map(allGdeltEvents.map((item) => [item.id, item])).values()
-            );
-
-            console.log(`Deduplicated GDELT events: ${allGdeltEvents.length} -> ${uniqueEvents.length}`);
-
-            const { error: gdeltError } = await supabase
-                .from('gdelt_events')
-                .upsert(uniqueEvents, { onConflict: 'id' });
-
-            if (gdeltError) console.error("GDELT Upsert Error:", gdeltError);
-            else {
-                console.log(`Upserted ${uniqueEvents.length} GDELT events.`);
-
-                // NOTIFICATION LOGIC (Only for Global Cron)
-                if (!customQuery) {
-                    // Filter "High Value" events for Notification
-                    // Valid Image URL is required for Rich Media
-                    const highValueEvents = uniqueEvents.filter((e: any) =>
-                        (e.vibe === 'Intense' || e.vibe === 'Inspiration' || e.vibe === 'Trending') &&
-                        e.title.length > 10 &&
-                        e.image_url && e.image_url.startsWith('http')
-                    );
-
-                    // 1. Send Top Story to Global Topics (Generic Vibe)
-                    const topEvent = highValueEvents[0];
-                    if (topEvent) {
-                        const topic = `news_${topEvent.vibe.toLowerCase().replace(' ', '_')}`;
-                        const hookTitle = generateHook(topEvent.title, topEvent.vibe);
-
-                        console.log(`Broadcasting Rich Notification for: ${topEvent.title} to topic: ${topic}`);
-
-                        await sendFcmNotification({
-                            "to": `/topics/${topic}`,
-                            "notification": {
-                                "title": hookTitle,
-                                "body": "Tap to read the full story.",
-                                "image": topEvent.image_url
-                            },
-                            "webpush": {
-                                "notification": {
-                                    "icon": "/icon.png"
-                                },
-                                "fcm_options": {
-                                    "link": "/feed"
-                                }
-                            },
-                            "data": {
-                                "eventId": topEvent.id,
-                                "type": "NEWS_ALERT",
-                                "vibe": topEvent.vibe,
-                                "url": topEvent.source_url,
-                                "imageUrl": topEvent.image_url,
-                                "actions": JSON.stringify([{ title: 'Read Summary', action: 'read_summary' }])
-                            }
-                        });
-                    }
-
-                    // 2. Send Granular Topic Notifications (OPTIMIZED)
-                    // limit to a few to avoid spamming self during testing
-                    const granularCandidates = highValueEvents.slice(0, 5);
-                    const topicToEventsMap = new Map<string, any[]>();
-                    const allCandidateKeywords = new Set<string>();
-
-                    // Step A: Collect all keywords and map them to events
-                    for (const event of granularCandidates) {
-                        const rawKeywords = event.title.split(' ').filter((w: string) => w.length > 5 && /^[A-Z]/.test(w));
-                        if (event.country && event.country !== 'Global') {
-                            rawKeywords.push(event.country);
-                        }
-                        const uniqueEventKeywords = [...new Set(rawKeywords)];
-
-                        for (const kw of uniqueEventKeywords) {
-                            const topicKey = (kw as string).toLowerCase().trim();
-                            if (topicKey.length > 3) {
-                                allCandidateKeywords.add(topicKey);
-
-                                if (!topicToEventsMap.has(topicKey)) {
-                                    topicToEventsMap.set(topicKey, []);
-                                }
-                                topicToEventsMap.get(topicKey)?.push(event);
-                            }
-                        }
-                    }
-
-                    // Step B: Single Query for ALL interested users
-                    const keywordArray = Array.from(allCandidateKeywords);
-                    if (keywordArray.length > 0) {
-                        console.log(`Checking DB for users interested in ANY of ${keywordArray.length} keywords...`);
-
-                        // Use overlaps (&&) to find users who follow ANY of the keywords
-                        const { data: profiles, error: matchError } = await supabase
-                            .from('app_profiles_v2')
-                            .select('fcm_token, followed_topics')
-                            .overlaps('followed_topics', keywordArray)
-                            .not('fcm_token', 'is', null);
-
-                        if (!matchError && profiles && profiles.length > 0) {
-                            console.log(`Found ${profiles.length} user profiles with potential matches.`);
-
-                            // Step C: Match Users to Events in Memory & Deduplicate Notifications
-                            // Map<fcmToken, Set<Event>>
-                            const userNotifications = new Map<string, Set<any>>();
-
-                            for (const profile of profiles) {
-                                const userTopics = profile.followed_topics || [];
-                                const userToken = profile.fcm_token;
-
-                                // Find intersection
-                                const interestingTopics = userTopics.filter((t: string) => allCandidateKeywords.has(t));
-
-                                for (const topic of interestingTopics) {
-                                    const eventsForTopic = topicToEventsMap.get(topic);
-                                    if (eventsForTopic) {
-                                        if (!userNotifications.has(userToken)) {
-                                            userNotifications.set(userToken, new Set());
-                                        }
-                                        eventsForTopic.forEach(e => userNotifications.get(userToken)?.add(e));
-                                    }
-                                }
-                            }
-
-                            console.log(`Preparing notifications for ${userNotifications.size} unique users.`);
-
-                            // Step D: Send Notifications (Batched by User)
-                            for (const [token, eventsSet] of userNotifications) {
-                                const events = Array.from(eventsSet);
-                                const event = events[0]; // Send the first relevant event (avoid spamming multiple)
-
-                                // In a real system, we might send a digest or queue multiple, but let's stick to 1 per run per user to be safe
-                                await sendFcmNotification({
-                                    "to": token, // Direct to token
-                                    "notification": {
-                                        "title": `News for you`,
-                                        "body": event.title,
-                                        "image": event.image_url
-                                    },
-                                    "webpush": {
-                                        "notification": {
-                                            "icon": "/icon.png"
-                                        },
-                                        "fcm_options": {
-                                            "link": "/feed"
-                                        }
-                                    },
-                                    "android": {
-                                        "notification": {
-                                            "click_action": "geo-terra:view-news-item"
-                                        }
-                                    },
-                                    "apns": {
-                                        "payload": {
-                                            "aps": {
-                                                "category": "geo-terra:view-news-item",
-                                                "mutable-content": 1
-                                            }
-                                        }
-                                    },
-                                    "data": {
-                                        "eventId": event.id,
-                                        "type": "NEWS_ALERT",
-                                        "isTopicAlert": "true"
-                                    }
-                                });
-                            }
-                        } else if (matchError) {
-                            console.error("Error matching users for granular topics:", matchError);
-                        }
-                    }
-
-                    // 3. Daily Brief Logic (Placeholder)
-                    // Check time: 8 AM UTC (roughly 8 AM London / 9 AM Paris)
-                    const now = new Date();
-                    if (now.getUTCHours() === 8 && now.getUTCMinutes() < 20) {
-                        console.log("Creating Daily Brief Notification...");
-                        // Server-Side Targeting for Daily Brief
-                        const { data: profiles } = await supabase
-                            .from('app_profiles_v2')
-                            .select('fcm_token')
-                            .contains('followed_topics', ['daily_brief'])
-                            .not('fcm_token', 'is', null);
-
-                        if (profiles && profiles.length > 0) {
-                            const tokens = profiles.map((p: any) => p.fcm_token);
-                            const uniqueTokens = [...new Set(tokens)];
-
-                            const batchSize = 1000;
-                            for (let i = 0; i < uniqueTokens.length; i += batchSize) {
-                                const batch = uniqueTokens.slice(i, i + batchSize);
-                                await sendFcmNotification({
-                                    "registration_ids": batch,
-                                    "notification": {
-                                        "title": "☕️ Your Daily Brief",
-                                        "body": `Here are the top stories from around the world.`,
-                                        "image": topEvent?.image_url
-                                    },
-                                    "data": {
-                                        "type": "DAILY_BRIEF"
-                                    }
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            console.log("No GDELT events found to upsert.");
-        }
-
+        // --- CORE CHANGE: RESPONSE FIRST, PROCESS LATER ---
+        // @ts-ignore
+        EdgeRuntime.waitUntil(processFeeds(customQuery));
 
         return new Response(JSON.stringify({
             success: true,
-            message: customQuery ? "Custom feed fetched" : "Global feeds updated",
-            events: uniqueEvents
+            message: "Processing started in background"
         }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
 
     } catch (err) {
         console.error("Function Error:", err);
-        return new Response(JSON.stringify({
-            success: false,
-            error: err instanceof Error ? err.message : 'Unknown Error',
-            details: String(err)
-        }), {
+        return new Response(JSON.stringify({ error: String(err) }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
         });

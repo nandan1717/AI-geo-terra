@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Bell, BellOff, Loader2, Plus, X } from 'lucide-react';
+import { Loader2, Plus, X } from 'lucide-react';
 
 interface InterestManagerProps {
     userId: string;
@@ -81,34 +81,7 @@ const InterestManager: React.FC<InterestManagerProps> = ({ userId }) => {
         }
     };
 
-    const toggleDailyBrief = async (subscribe: boolean) => {
-        setProcessingTopic('DAILY_BRIEF');
-        try {
-            // Just toggle visual state for now, assuming backend will query 'subscribed_daily_brief' or we add it to DB later.
-            // Since 'subscribed_daily_brief' is just local, without FCM topic valid, this feature might break unless we assume
-            // Daily Brief is sent to ALL users or we add a DB Flags field.
-            // Given user instruction "use follow logic", Daily Brief isn't a "topic" in the array sense usually.
-            // Let's assume for now we just toggle the LocalStorage so the UI updates, but really this feature needs a 'daily_brief' tag in the DB array.
 
-            if (subscribe) {
-                localStorage.setItem('subscribed_daily_brief', 'true');
-                // Also add to followed_topics for backend targeting?
-                // Let's treat 'daily_brief' as a topic!
-                if (!topics.includes('daily_brief')) {
-                    await handleAddTopicDBOnly('daily_brief');
-                }
-            } else {
-                localStorage.removeItem('subscribed_daily_brief');
-                if (topics.includes('daily_brief')) {
-                    await handleRemoveTopicDBOnly('daily_brief');
-                }
-            }
-        } finally {
-            setProcessingTopic(null);
-        }
-    };
-
-    const isDailyBriefSubscribed = localStorage.getItem('subscribed_daily_brief') === 'true';
 
     if (loading) return <div className="flex justify-center p-4"><Loader2 className="animate-spin text-blue-400" /></div>;
 
@@ -116,28 +89,7 @@ const InterestManager: React.FC<InterestManagerProps> = ({ userId }) => {
         <div className="space-y-4">
             <h3 className="text-sm font-bold text-white uppercase tracking-wider">Your Interests</h3>
 
-            {/* Daily Brief Toggle */}
-            <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/10">
-                <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-yellow-500/20 flex items-center justify-center text-yellow-400">
-                        {isDailyBriefSubscribed ? <Bell size={16} /> : <BellOff size={16} />}
-                    </div>
-                    <div>
-                        <p className="text-sm font-medium text-white">Daily Brief</p>
-                        <p className="text-xs text-white/50">8:00 AM Summary</p>
-                    </div>
-                </div>
-                <button
-                    onClick={() => toggleDailyBrief(!isDailyBriefSubscribed)}
-                    className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${isDailyBriefSubscribed
-                        ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20'
-                        : 'bg-white/10 text-white/50 hover:bg-white/20'
-                        }`}
-                    disabled={processingTopic === 'DAILY_BRIEF'}
-                >
-                    {processingTopic === 'DAILY_BRIEF' ? <Loader2 size={12} className="animate-spin" /> : (isDailyBriefSubscribed ? 'ON' : 'OFF')}
-                </button>
-            </div>
+
 
             {/* Existing Topics */}
             <div className="flex flex-wrap gap-2">

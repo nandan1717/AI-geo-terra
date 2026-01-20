@@ -63,9 +63,13 @@ export const chatService = {
      * Fetches the user's recent chat sessions, optionally filtered by query.
      */
     async getRecentSessions(query?: string) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return [];
+
         let dbQuery = supabase
             .from('chat_sessions')
             .select('*')
+            .eq('user_id', user.id) // Explicit User Filter
             .order('is_favorite', { ascending: false }) // Favorites first
             .order('last_message_at', { ascending: false })
             .limit(50);
@@ -199,9 +203,13 @@ export const chatService = {
      * Fetches unique AI locals the user has chatted with.
      */
     async getUniqueLocals() {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return [];
+
         const { data, error } = await supabase
             .from('chat_sessions')
             .select('persona_name, persona_occupation, persona_image_url, location_name, last_message_at')
+            .eq('user_id', user.id) // Explicit User Filter
             .order('last_message_at', { ascending: false });
 
         if (error) throw error;

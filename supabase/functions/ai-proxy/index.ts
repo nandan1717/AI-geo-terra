@@ -5,7 +5,7 @@ const DEEPSEEK_API_KEY = Deno.env.get('DEEPSEEK_API_KEY') || '';
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') || '';
 
 const corsHeaders = {
-    'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || 'https://geo-terra.vercel.app',
+    'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
     'Access-Control-Allow-Credentials': 'true',
 };

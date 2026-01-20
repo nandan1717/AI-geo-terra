@@ -409,12 +409,23 @@ export const socialService = {
         return publicUrl;
     },
 
+    async getRecentUsers(limit: number = 20) {
+        const { data, error } = await supabase
+            .from('app_profiles_v2')
+            .select('id, username, full_name, avatar_url, occupation, location, bio')
+            .order('created_at', { ascending: false })
+            .limit(limit);
+
+        if (error) throw error;
+        return data || [];
+    },
+
     async searchUsers(query: string) {
         if (!query || query.length < 2) return [];
 
         const { data, error } = await supabase
             .from('app_profiles_v2')
-            .select('id, username, full_name, avatar_url, occupation, location')
+            .select('id, username, full_name, avatar_url, occupation, location, bio')
             .or(`username.ilike.%${query}%,full_name.ilike.%${query}%`)
             .limit(20);
 

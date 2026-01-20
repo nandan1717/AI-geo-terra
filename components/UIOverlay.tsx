@@ -201,8 +201,139 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
     const [isMinimized, setIsMinimized] = useState(false);
     const [isCustomSearching, setIsCustomSearching] = useState(false); // Custom Search State
     const [chatPosition, setChatPosition] = useState({ x: 20, y: 80 }); // Default desktop position
+    const [generatedPersonas, setGeneratedPersonas] = useState<any[]>([]); // Separated Search Results
+    const [isSearchResultsMode, setIsSearchResultsMode] = useState(false); // Validating Search State
     const [isDragging, setIsDragging] = useState(false);
+    const [isGeneratingLocal, setIsGeneratingLocal] = useState(false);
     const dragOffset = useRef({ x: 0, y: 0 });
+
+    const [isStartingChat, setIsStartingChat] = useState(false); // New state to suppress marker sheet
+
+    // Helper to Start Chat
+    const handleStartChat = async (persona: any) => {
+        setIsRealFriendsOpen(false);
+        setIsAddFriendsOpen(false);
+        setIsStartingChat(true); // Suppress marker sheet
+
+        // 1. Construct Location Marker
+        const locationMarker: LocationMarker = {
+            id: `loc_${persona.latitude}_${persona.longitude}`,
+            name: persona.locationName || persona.location_name || 'Unknown Location',
+            latitude: persona.latitude || persona.location_lat || 0,
+            longitude: persona.longitude || persona.location_lng || 0,
+            description: "Local Territory",
+            type: "Place",
+            country: persona.country
+        };
+
+        // 2. Select Marker (Visual Fly To) - optional, but nice for context
+        onSelectMarker(locationMarker);
+
+        // 3. Start/Resume Session
+        if (userId) {
+            try {
+                const { chatService } = await import('../services/chatService');
+                console.log("Creating/Resuming chat session for:", persona.name || persona.persona_name);
+
+                // Ensure persona object has necessary fields for createSession
+                const sessionPersona = {
+                    ...persona,
+                    name: persona.name || persona.persona_name
+                };
+
+                const session = await chatService.createSession(sessionPersona, locationMarker);
+                console.log("Session established:", session.id);
+                // Resume the session
+                onResumeSession(session.id, sessionPersona, locationMarker);
+            } catch (err) {
+                console.error("Failed to create chat session:", err);
+                alert("Failed to connect to AI service. Please check your connection.");
+            } finally {
+                setIsStartingChat(false);
+            }
+        } else {
+            console.warn("Cannot start chat: User ID missing");
+            alert("Please sign in to chat with locals.");
+            setIsStartingChat(false);
+        }
+    };
+
+    const handleLocalSearch = async (query: string) => {
+        console.log("handleLocalSearch called with:", query);
+        setIsGeneratingLocal(true);
+        setIsSearchResultsMode(true); // Enforce search mode
+        // Clear previous results on new search start?
+        setGeneratedPersonas([]);
+        try {
+            // Determine Context Location
+            let contextLocation = selectedMarker;
+            if (!contextLocation && markers.length > 0) {
+                contextLocation = markers[0];
+            }
+            if (!contextLocation) {
+                // Fallback
+                contextLocation = {
+                    id: 'loc_global_hub',
+                    name: 'Global Digital Hub',
+                    latitude: 48.8566,
+                    longitude: 2.3522,
+                    description: 'Connecting globally...',
+                    type: 'Place',
+                    country: 'International'
+                };
+            }
+
+            const { fetchCrowd } = await import('../services/geminiService');
+            // If query is empty, maybe fetch default? But here we assume query exists.
+            const newMembers = await fetchCrowd(contextLocation, query);
+
+            if (newMembers.length > 0) {
+                // Convert to AILocal format
+                const newLocals = newMembers.map(m => ({
+                    persona_name: m.name,
+                    persona_occupation: m.occupation,
+                    persona_image_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${m.name}`,
+                    location_name: contextLocation!.name,
+                    location_lat: contextLocation!.latitude,
+                    location_lng: contextLocation!.longitude,
+                    // Synthesize ID for session start
+                    id: `gen_${Date.now()}_${m.name.replace(/\s/g, '')}`,
+                    persona_data: {
+                        name: m.name,
+                        occupation: m.occupation,
+                        age: m.age,
+                        gender: m.gender,
+                        bio: m.bio,
+                        imageUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${m.name}`, // Fallback/Default
+                        mindset: m.mindset,
+                        mood: m.mood,
+                        lineage: m.lineage,
+                        currentActivity: m.currentActivity,
+                        suggestedQuestions: []
+                    },
+                    // Flattened props for easy access
+                    name: m.name,
+                    occupation: m.occupation,
+                    latitude: contextLocation!.latitude,
+                    longitude: contextLocation!.longitude,
+                    country: contextLocation!.country
+                }));
+
+                // Update Search Results ONLY
+                setGeneratedPersonas(newLocals);
+                return newLocals;
+            }
+            return [];
+        } catch (error) {
+            console.error("Failed to generate custom local:", error);
+            alert("Could not generate persona. Please try again.");
+            return [];
+        } finally {
+            setIsGeneratingLocal(false);
+        }
+    };
+
+    // ... (rest of effects)
 
     useEffect(() => {
         const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -346,7 +477,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
 
     // Hide default sheet for News/AI items (handled by NewsFeed)
     const isGlobalFeedItem = selectedMarker && (selectedMarker.type === 'Event' || (selectedMarker.type === 'Post' && !selectedMarker.isUserPost));
-    const showMarkerSheet = selectedMarker && !persona && crowd.length === 0 && !isGlobalFeedItem;
+    const showMarkerSheet = selectedMarker && !persona && crowd.length === 0 && !isGlobalFeedItem && !isStartingChat; // Added !isStartingChat
 
     return (
         <div className="absolute inset-0 pointer-events-none font-sans text-white flex flex-col">
@@ -451,11 +582,28 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                 isRealFriendsOpen && (
                     <div className="absolute top-0 right-0 w-full h-full md:w-[24rem] z-50 pointer-events-auto animate-in slide-in-from-right duration-300 bg-[#0a0a0a] border-l border-white/10 shadow-2xl">
                         <RealUsersList
-                            onClose={() => setIsRealFriendsOpen(false)}
+                            onClose={() => {
+                                setIsRealFriendsOpen(false);
+                                if (!isGeneratingLocal) {
+                                    setIsSearchResultsMode(false);
+                                    setGeneratedPersonas([]);
+                                }
+                            }}
+                            // Show Generated Results if in Search Mode, otherwise show My Connections
+                            aiPersonas={isSearchResultsMode ? generatedPersonas : aiLocals}
                             onUserSelect={(userId) => {
                                 setViewingProfileId(userId);
                                 setIsProfileOpen(true);
                                 setIsRealFriendsOpen(false);
+                            }}
+                            isGenSearching={isGeneratingLocal}
+                            onGenSearch={async (query) => {
+                                // 1. Generate the local (populates generatedPersonas)
+                                await handleLocalSearch(query);
+                                // 2. Do NOT auto-start. Let user see results and choose.
+                            }}
+                            onChatSelect={(persona: any) => {
+                                handleStartChat(persona);
                             }}
                         />
                     </div>
@@ -505,6 +653,10 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                         <AILocalsList
                             locals={aiLocals}
                             onClose={() => setIsAddFriendsOpen(false)}
+                            isSearching={isGeneratingLocal}
+                            onSearch={(query) => {
+                                handleLocalSearch(query);
+                            }}
                             onChat={(local) => {
                                 setIsAddFriendsOpen(false);
                                 // Resume session using the stored data
@@ -956,62 +1108,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                                         </div>
                                     </div>
                                 </>
-                            ) : (
-                                /* STANDARD LOCATION VIEW */
-                                <>
-                                    <div className="relative h-32 md:h-40 bg-gradient-to-br from-slate-900 via-blue-950 to-black p-6 flex flex-col justify-end">
-                                        <button
-                                            onClick={onCloseMarker}
-                                            className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-white/10 rounded-full text-white/70 transition-colors backdrop-blur-md"
-                                        >
-                                            <X size={20} />
-                                        </button>
-                                        <div className="flex items-center gap-2 text-blue-300 text-[10px] font-mono uppercase tracking-wider mb-1">
-                                            <MapPin size={12} />
-                                            <span>
-                                                {selectedMarker.region ? `${selectedMarker.region}, ` : ''}
-                                                {selectedMarker.country || ''}
-                                            </span>
-                                        </div>
-                                        <h2 className="text-2xl md:text-3xl font-bold text-white leading-tight shadow-black drop-shadow-md pr-8">
-                                            {selectedMarker.name}
-                                        </h2>
-                                    </div>
-                                    <div className="p-6 pt-4 space-y-6 pb-10 md:pb-6">
-                                        <p className="text-sm text-gray-300 leading-relaxed">
-                                            {selectedMarker.description}
-                                        </p>
-                                        <div className="flex gap-3">
-                                            <a
-                                                href={selectedMarker.googleMapsUri || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${selectedMarker.name} ${selectedMarker.region || ''} ${selectedMarker.country || ''}`)}`}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="flex-1 py-3.5 bg-white/5 hover:bg-white/10 text-white rounded-xl font-semibold text-sm transition-colors border border-white/10 flex items-center justify-center gap-2"
-                                            >
-                                                <MapPin size={16} className="text-gray-400" />
-                                                Maps
-                                            </a>
-                                            <button
-                                                onClick={() => onSelectMarker(selectedMarker)}
-                                                disabled={isLoadingCrowd}
-                                                className="flex-[2] py-3.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white rounded-xl font-semibold text-sm shadow-lg shadow-blue-900/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2.5"
-                                            >
-                                                {isLoadingCrowd ? (
-                                                    <>
-                                                        <Loader2 className="animate-spin" size={18} />
-                                                        <span>Scanning...</span>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <Users size={18} />
-                                                        <span>Scan For Locals</span>
-                                                    </>
-                                                )}
-                                            </button>
-                                        </div>
-                                    </div>
-                                </>
-                            )}
+                            ) : null}
                         </div>
                     </div>
                 )
@@ -1292,7 +1389,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                     toggleNewsFeed(); // Close feed to show event on globe
                 }}
             />
-        </div>
+        </div >
     );
 };
 

@@ -23,8 +23,14 @@ export const queryDeepSeek = async (
   // Try secure proxy first
   try {
     return await queryDeepSeekSecure(messages, jsonMode, temperature);
-  } catch (proxyError) {
+  } catch (proxyError: any) {
     logger.warn('AI Proxy unavailable, falling back to direct call:', proxyError);
+    // If fallback key is missing, this is a DEAD END. Warn the user.
+    if (!LEGACY_API_KEY) {
+      console.error("Critical: AI Proxy failed and no local API key found.");
+      // We catch this in the UI usually, but let's make it loud
+      throw new Error(`Connection to AI Brain failed: ${proxyError.message || "Unreachable"}. Please check Edge Function deployment.`);
+    }
   }
 
   // Legacy fallback (only if proxy fails and key is available)
