@@ -88,6 +88,13 @@ const App: React.FC = () => {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isCreatePostOpen, setIsCreatePostOpen] = useState(false);
   const [isSearchActive, setIsSearchActive] = useState(false); // New state to track search bar interaction
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
+
+  useEffect(() => {
+    if ('Notification' in window) {
+      setNotificationPermission(Notification.permission);
+    }
+  }, []);
 
   // Profile State
   const [userProfileImage, setUserProfileImage] = useState<string | undefined>(undefined);
@@ -263,6 +270,16 @@ const App: React.FC = () => {
                   // DEEP LINK HANDLING (New)
                   const deepLinkUrl = payload.data?.url;
                   const eventId = payload.data?.eventId;
+
+                  // Manual System Notification (Foreground)
+                  if ('Notification' in window && Notification.permission === 'granted') {
+                    new Notification(title, {
+                      body: body,
+                      icon: '/pwa-icon.svg',
+                      // @ts-ignore
+                      image: payload.notification?.image || payload.data?.image
+                    });
+                  }
 
                   createNotification(session.user.id, 'FCM_MESSAGE', {
                     title,
@@ -772,8 +789,10 @@ const App: React.FC = () => {
           showPermissionCard={showPermissionCard}
           onPermissionGranted={handlePermissionGranted}
           onPermissionDismiss={handlePermissionDismiss}
+          onRequestNotifications={() => setShowPermissionCard(true)}
           onPostClick={() => setIsCreatePostOpen(true)}
           onSearchInteraction={setIsSearchActive}
+          notificationPermission={notificationPermission}
 
 
         />

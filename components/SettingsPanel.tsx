@@ -1,7 +1,6 @@
 import React from 'react';
-import { X, LogOut, HelpCircle, User as UserIcon, Trash2 } from 'lucide-react';
+import { X, LogOut, HelpCircle, User as UserIcon, Trash2, Bell } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
-import InterestManager from './InterestManager';
 
 interface SettingsPanelProps {
     isOpen: boolean;
@@ -9,6 +8,8 @@ interface SettingsPanelProps {
     onSignOut: () => void;
     onRestartTutorial?: () => void;
     userEmail?: string;
+    onRequestNotifications: () => void;
+    notificationPermission?: NotificationPermission;
 }
 
 const SettingsPanel: React.FC<SettingsPanelProps> = ({
@@ -16,7 +17,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     onClose,
     onSignOut,
     onRestartTutorial,
-    userEmail
+    userEmail,
+    onRequestNotifications,
+    notificationPermission
 }) => {
     const handleDeleteAccount = async () => {
         if (!confirm('Are you sure you want to delete your account? This action is irreversible and will delete all your data.')) {
@@ -43,6 +46,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     };
 
     if (!isOpen) return null;
+
+    const isNotificationsEnabled = notificationPermission === 'granted';
 
     return (
         <>
@@ -124,17 +129,37 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                         </div>
                     </button>
 
-                    {/* Interest Manager */}
-                    <div className="bg-white/5 rounded-lg border border-white/10 p-3 mb-4">
-                        <InterestManager userId={userEmail || 'anon'} />
-                        {/* Note: ideally we pass userId. userEmail is passed, assuming we have ID available or can fetch. 
-                            For now, assuming userEmail might be the ID or we need to pass ID from parent.
-                            Wait, SettingsPanelProps receives userEmail. I should probably ensure I have userId.
-                            If not available, I might need to fetch it or assume it's context.
-                            
-                            Let's check App.tsx to see what is passed to SettingsPanel.
-                        */}
-                    </div>
+                    {/* Allow Notifications (Replaces Interest Manager) */}
+                    <button
+                        onClick={() => {
+                            if (!isNotificationsEnabled) {
+                                onRequestNotifications();
+                                onClose();
+                            }
+                        }}
+                        disabled={isNotificationsEnabled}
+                        className={`w-full p-3 rounded-lg text-left transition-colors group border ${isNotificationsEnabled
+                            ? 'bg-white/5 border-white/10 cursor-default'
+                            : 'bg-white/5 hover:bg-white/10 border-white/10'
+                            }`}
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${isNotificationsEnabled
+                                ? 'bg-green-500/20 text-green-400'
+                                : 'bg-blue-500/20 text-blue-400 group-hover:bg-blue-500/30'
+                                }`}>
+                                <Bell size={20} />
+                            </div>
+                            <div>
+                                <p className="text-sm font-medium text-white">
+                                    {isNotificationsEnabled ? 'Notifications Enabled' : 'Allow Notifications'}
+                                </p>
+                                <p className="text-xs text-gray-400">
+                                    {isNotificationsEnabled ? 'You will receive alerts' : 'Enable Push Alerts'}
+                                </p>
+                            </div>
+                        </div>
+                    </button>
 
                     {/* Danger Zone */}
                     <div className="pt-4 mt-4 border-t border-white/10">

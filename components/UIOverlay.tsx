@@ -67,9 +67,10 @@ interface UIOverlayProps {
     showPermissionCard?: boolean;
     onPermissionGranted: (token: string) => void;
     onPermissionDismiss: () => void;
+    onRequestNotifications: () => void;
     onPostClick?: () => void;
     lockdownMode?: boolean;
-
+    notificationPermission?: NotificationPermission;
 }
 
 
@@ -119,10 +120,12 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
     showPermissionCard,
     onPermissionGranted,
     onPermissionDismiss,
+    onRequestNotifications,
     lockdownMode = false,
     onChatToggle,
     onPostClick,
     onSearchInteraction,
+    notificationPermission,
 }) => {
     const { isNewsFeedOpen, toggleNewsFeed, newsEvents, injectEvent, setFocusedEventId } = useNews();
     const [inputValue, setInputValue] = useState('');
@@ -644,6 +647,8 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                 onSignOut={onSignOut}
                 onRestartTutorial={onRestartTutorial}
                 userEmail={userEmail}
+                onRequestNotifications={onRequestNotifications}
+                notificationPermission={notificationPermission}
             />
 
             {/* ADD FRIENDS PANEL (AI LOCALS) */}

@@ -558,6 +558,15 @@ async function processFeeds(customQuery: string | null) {
                             "eventId": topEvent.id,
                             "type": "NEWS_ALERT",
                             "actions": JSON.stringify([{ title: 'Read Summary', action: 'read_summary' }])
+                        },
+                        "webpush": {
+                            "fcm_options": {
+                                "link": "https://geo-terra.vercel.app"
+                            },
+                            "notification": {
+                                "icon": "https://geo-terra.vercel.app/pwa-icon.svg",
+                                "badge": "https://geo-terra.vercel.app/pwa-icon.svg"
+                            }
                         }
                     });
                 }
@@ -646,6 +655,15 @@ async function processFeeds(customQuery: string | null) {
                                             "type": "NEWS_ALERT",
                                             "url": event.source_url,
                                             "isTopicAlert": "true"
+                                        },
+                                        "webpush": {
+                                            "fcm_options": {
+                                                "link": "https://geo-terra.vercel.app"
+                                            },
+                                            "notification": {
+                                                "icon": "https://geo-terra.vercel.app/pwa-icon.svg",
+                                                "badge": "https://geo-terra.vercel.app/pwa-icon.svg"
+                                            }
                                         }
                                     });
                                     userIdsToUpdate.add(userId);

@@ -1,9 +1,8 @@
-importScripts('https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js');
-importScripts('https://www.gstatic.com/firebasejs/8.10.1/firebase-messaging.js');
+importScripts('https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/9.0.0/firebase-messaging-compat.js');
 
 // Initialize the Firebase app in the service worker by passing in the
 // messagingSenderId.
-// Parse config from URL parameters
 // Parse config from URL parameters
 const params = new URL(location.href).searchParams;
 const config = {
@@ -29,12 +28,12 @@ const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
     console.log('[firebase-messaging-sw.js] Received background message ', payload);
-    // Customize notification here
     const notificationTitle = payload.notification.title;
 
+    // User suggested options + robust handling
     const notificationOptions = {
         body: payload.notification.body,
-        icon: '/icon-192x192.png', // Ensure you have an icon in public folder or use a placeholder
+        icon: payload.webpush?.notification?.icon || payload.notification.image || '/pwa-icon.svg',
         image: payload.notification.image || payload.data.image, // Support Rich Media Image
         tag: payload.data.eventId || 'general', // Grouping
         renotify: true,
@@ -64,15 +63,26 @@ self.addEventListener('notificationclick', (event) => {
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
             // Check if there is already a window/tab open with the target URL
+            const urlToOpen = event.notification.data?.url || '/'; // Use deep link if avail
+
             for (let i = 0; i < windowClients.length; i++) {
                 const client = windowClients[i];
                 if (client.url.indexOf('/') !== -1 && 'focus' in client) {
-                    return client.focus();
+                    return client.focus().then((windowClient) => {
+                        // Optional: Send message to window to navigate?
+                        // For now just focus is good, the App.tsx foreground listener might handle it if we send a message
+                        // But for now simple focus is standard.
+                        // If we want to navigate to specific URL, we might need client.navigate(urlToOpen)
+                        if (urlToOpen !== '/' && client.navigate) {
+                            return client.navigate(urlToOpen);
+                        }
+                        return windowClient;
+                    });
                 }
             }
             // If not, open a new window/tab
             if (clients.openWindow) {
-                return clients.openWindow('/');
+                return clients.openWindow(urlToOpen);
             }
         })
     );
